@@ -43,7 +43,7 @@ export default function HomePage() {
       console.warn('Geolocation failed for SMS fallback')
     }
     const message = `R|${lat}|${lng}|HIGH`
-    const twilioNumber = '+1234567890' // TODO: Replace with real Twilio Number
+    const twilioNumber = import.meta.env.VITE_TWILIO_PHONE_NUMBER || '+16415416167' // Automatically uses your .env
     window.location.href = `sms:${twilioNumber}?body=${encodeURIComponent(message)}`
   }, [])
 
