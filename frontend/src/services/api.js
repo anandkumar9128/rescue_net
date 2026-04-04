@@ -1,7 +1,8 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/api',
+  // Use Render URL directly, or fallback to an environment variable if defined
+  baseURL: import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'https://rescue-net-backend.onrender.com/api',
   timeout: 10000,
   headers: { 'Content-Type': 'application/json' },
 })
