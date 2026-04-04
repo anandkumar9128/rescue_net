@@ -147,14 +147,25 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers }) {
   )
 }
 
+// ── Skill type columns config ──────────────────────────────────────────────────
+const SKILL_COLS = [
+  { key: 'Medical',  icon: '🏥', color: 'border-red-500/30    bg-red-500/5    text-red-400' },
+  { key: 'Food',     icon: '🍱', color: 'border-yellow-500/30 bg-yellow-500/5 text-yellow-400' },
+  { key: 'Rescue',   icon: '🚁', color: 'border-blue-500/30   bg-blue-500/5   text-blue-400' },
+  { key: 'Shelter',  icon: '🏠', color: 'border-purple-500/30 bg-purple-500/5 text-purple-400' },
+  { key: 'General',  icon: '⚙️', color: 'border-slate-500/30  bg-slate-500/5  text-slate-400' },
+]
+
 // ── Main NGO Dashboard ─────────────────────────────────────────────────────────
 export default function NGODashboard() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [tab, setTab]             = useState('overview')
-  const [data, setData]           = useState({ assignments: [], volunteers: [], clusters: [] })
-  const [loading, setLoading]     = useState(true)
-  const [liveAlerts, setAlerts]   = useState([])
+  const [tab, setTab]               = useState('overview')
+  const [data, setData]             = useState({ assignments: [], volunteers: [], clusters: [] })
+  const [joinRequests, setJoinReqs] = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [liveAlerts, setAlerts]     = useState([])
+  const [respondingId, setRespondingId] = useState(null) // request ID being approved/rejected
 
   const ngoId = user?.ngo_id
 
@@ -162,8 +173,12 @@ export default function NGODashboard() {
   const loadDashboard = useCallback(async () => {
     if (!ngoId) return
     try {
-      const { data: res } = await api.get(`/ngos/${ngoId}/dashboard`)
-      setData(res.data)
+      const [dashRes, joinRes] = await Promise.all([
+        api.get(`/ngos/${ngoId}/dashboard`),
+        api.get('/join-requests/incoming'),
+      ])
+      setData(dashRes.data.data)
+      setJoinReqs(joinRes.data.data)
     } catch (err) {
       console.error('Dashboard load failed:', err)
     } finally {
@@ -185,17 +200,21 @@ export default function NGODashboard() {
       addAlert(`🆕 New ${data.need_type} request — ${data.total_people} people`, 'new')
       loadDashboard()
     })
-    socket.on('volunteer_accepted', () => { loadDashboard() })
-    socket.on('assignment_status_update', (data) => {
+    socket.on('volunteer_accepted',        () => { loadDashboard() })
+    socket.on('assignment_status_update',  (data) => {
       addAlert(`📋 Assignment ${data.status}`, 'update')
       loadDashboard()
     })
-    socket.on('volunteer_status_update', (data) => {
+    socket.on('volunteer_status_update',   (data) => {
       addAlert(`🙋 ${data.name}: ${data.status}`, 'update')
       loadDashboard()
     })
-    socket.on('assignment_timeout', (data) => {
+    socket.on('assignment_timeout', () => {
       addAlert(`⚠️ No volunteer accepted — manual assignment needed`, 'warning')
+    })
+    socket.on('join_request_new', (data) => {
+      addAlert(`🙋 ${data.volunteer_name} (${data.skill_type}) wants to join!`, 'new')
+      loadDashboard()
     })
 
     return () => {
@@ -204,6 +223,7 @@ export default function NGODashboard() {
       socket.off('assignment_status_update')
       socket.off('volunteer_status_update')
       socket.off('assignment_timeout')
+      socket.off('join_request_new')
     }
   }, [loadDashboard])
 
@@ -217,20 +237,36 @@ export default function NGODashboard() {
     }
   }
 
+  // ── Respond to join request ───────────────────────────────────────────────────
+  const handleJoinResponse = async (requestId, action) => {
+    setRespondingId(requestId)
+    try {
+      await api.patch(`/join-requests/${requestId}`, { action })
+      loadDashboard()
+    } catch (err) {
+      console.error('Join response failed:', err)
+    } finally {
+      setRespondingId(null)
+    }
+  }
+
   // ── Computed stats ────────────────────────────────────────────────────────────
+  const pendingJoins = joinRequests.filter(r => r.status === 'pending').length
+
   const stats = {
-    active:    data.assignments.filter(a => !['Completed', 'Cancelled'].includes(a.status)).length,
-    completed: data.assignments.filter(a => a.status === 'Completed').length,
-    available: data.volunteers.filter(v => v.status === 'Available').length,
-    total_vol: data.volunteers.length,
+    active:        data.assignments.filter(a => !['Completed', 'Cancelled'].includes(a.status)).length,
+    completed:     data.assignments.filter(a => a.status === 'Completed').length,
+    available:     data.volunteers.filter(v => v.status === 'Available').length,
+    total_vol:     data.volunteers.length,
     open_clusters: data.clusters.length,
   }
 
   const TABS = [
-    { id: 'overview',    label: '📊 Overview' },
-    { id: 'assignments', label: '📋 Assignments' },
-    { id: 'volunteers',  label: '🙋 Volunteers' },
-    { id: 'clusters',    label: '🗺 Clusters' },
+    { id: 'overview',      label: '📊 Overview' },
+    { id: 'assignments',   label: '📋 Assignments' },
+    { id: 'volunteers',    label: '🙋 Volunteers' },
+    { id: 'join_requests', label: '🔔 Join Requests', badge: pendingJoins },
+    { id: 'clusters',      label: '🗺 Clusters' },
   ]
 
   return (
@@ -290,8 +326,13 @@ export default function NGODashboard() {
         <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`nav-item whitespace-nowrap ${tab === t.id ? 'active' : ''}`}>
+              className={`nav-item whitespace-nowrap relative ${tab === t.id ? 'active' : ''}`}>
               {t.label}
+              {t.badge > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold">
+                  {t.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -339,12 +380,151 @@ export default function NGODashboard() {
               </div>
             )}
 
-            {/* Volunteers */}
+            {/* Volunteers — grouped by skill type in columns */}
             {tab === 'volunteers' && (
-              <div className="glass-card p-6 animate-fade-in">
-                <h3 className="font-display font-bold text-white mb-4">Volunteers ({data.volunteers.length})</h3>
-                {data.volunteers.map((v) => <VolunteerRow key={v._id} vol={v} />)}
-                {data.volunteers.length === 0 && <div className="text-slate-500 text-sm">No volunteers registered under this NGO</div>}
+              <div className="animate-fade-in space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display font-bold text-white">Volunteers ({data.volunteers.length})</h3>
+                  <span className="text-slate-500 text-xs">Grouped by skill type</span>
+                </div>
+                {data.volunteers.length === 0 ? (
+                  <div className="glass-card p-10 text-center text-slate-500">
+                    <div className="text-4xl mb-3">🙋</div>
+                    <p>No volunteers yet. Approve join requests to see them here.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {SKILL_COLS.map(({ key, icon, color }) => {
+                      const group = data.volunteers.filter(v => v.skill_type === key)
+                      return (
+                        <div key={key} className={`rounded-2xl border p-4 ${color}`}>
+                          {/* Column header */}
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className="text-xl">{icon}</span>
+                            <div>
+                              <div className="font-semibold text-sm">{key}</div>
+                              <div className="text-[11px] opacity-70">{group.length} volunteer{group.length !== 1 ? 's' : ''}</div>
+                            </div>
+                          </div>
+                          {/* Member rows */}
+                          {group.length === 0 ? (
+                            <div className="text-[11px] opacity-50 italic">No members</div>
+                          ) : (
+                            <div className="space-y-3">
+                              {group.map(v => (
+                                <div key={v._id} className="bg-slate-900/60 rounded-xl px-3 py-2.5 space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-300 shrink-0">
+                                        {v.name?.[0]?.toUpperCase()}
+                                      </div>
+                                      <span className="text-white text-xs font-medium truncate max-w-[80px]">{v.name}</span>
+                                    </div>
+                                    <span className={`status-dot ${VOL_STATUS[v.status] || 'bg-slate-500'}`} />
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 pl-8">{v.phone}</div>
+                                  <div className="text-[11px] text-slate-600 pl-8">✅ {v.completed_tasks || 0} tasks</div>
+                                  <div className="pl-8">
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                                      {v.status}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Join Requests */}
+            {tab === 'join_requests' && (
+              <div className="animate-fade-in space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display font-bold text-white">
+                    Join Requests
+                    {pendingJoins > 0 && (
+                      <span className="ml-2 badge bg-brand-500/20 text-brand-400 border border-brand-500/30">
+                        {pendingJoins} pending
+                      </span>
+                    )}
+                  </h3>
+                  <button onClick={loadDashboard} className="btn-ghost text-xs py-1.5 px-3">↻ Refresh</button>
+                </div>
+
+                {joinRequests.length === 0 ? (
+                  <div className="glass-card p-10 text-center text-slate-500">
+                    <div className="text-4xl mb-3">📬</div>
+                    <p>No join requests yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {joinRequests.map(req => {
+                      const vol = req.volunteer_id
+                      const isPending = req.status === 'pending'
+                      return (
+                        <div key={req._id}
+                          className={`glass-card p-5 flex items-start justify-between gap-4 ${
+                            isPending ? 'border-brand-500/20' : 'opacity-60'
+                          }`}>
+                          {/* Volunteer info */}
+                          <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-xl bg-slate-700 flex items-center justify-center font-bold text-slate-300 shrink-0">
+                              {vol?.name?.[0]?.toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-white text-sm">{vol?.name}</div>
+                              <div className="text-slate-500 text-xs mt-0.5">{vol?.phone}</div>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400">
+                                  {vol?.skill_type}
+                                </span>
+                                <span className="text-[11px] text-slate-600">✅ {vol?.completed_tasks || 0} tasks done</span>
+                              </div>
+                              {req.message && (
+                                <p className="text-slate-500 text-xs mt-1.5 italic">"{req.message}"</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action / Status */}
+                          <div className="shrink-0">
+                            {isPending ? (
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  onClick={() => handleJoinResponse(req._id, 'approve')}
+                                  disabled={respondingId === req._id}
+                                  id={`approve-${req._id}`}
+                                  className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20 transition-all disabled:opacity-50">
+                                  {respondingId === req._id ? '...' : '✅ Approve'}
+                                </button>
+                                <button
+                                  onClick={() => handleJoinResponse(req._id, 'reject')}
+                                  disabled={respondingId === req._id}
+                                  id={`reject-${req._id}`}
+                                  className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/15 transition-all disabled:opacity-50">
+                                  Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span className={`badge border text-xs ${
+                                req.status === 'approved'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : 'bg-red-500/15 text-red-400 border-red-500/30'
+                              }`}>
+                                {req.status === 'approved' ? '✅ Approved' : '✕ Rejected'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

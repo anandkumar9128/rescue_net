@@ -132,7 +132,11 @@ export default function RegisterPage() {
 
     const result = await register(payload)
     if (result.success) {
-      navigate(role === 'ngo_admin' ? '/ngo' : role === 'volunteer' ? '/volunteer' : '/')
+      navigate(
+        role === 'ngo_admin' ? '/ngo'
+        : role === 'volunteer' ? '/volunteer/join'
+        : '/'
+      )
     } else {
       setError(result.message)
     }

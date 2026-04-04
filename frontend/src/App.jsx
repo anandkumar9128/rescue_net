@@ -1,11 +1,12 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import HomePage       from './pages/HomePage'
-import LoginPage      from './pages/LoginPage'
-import RegisterPage   from './pages/RegisterPage'
-import NGODashboard   from './pages/NGODashboard'
+import HomePage          from './pages/HomePage'
+import LoginPage         from './pages/LoginPage'
+import RegisterPage      from './pages/RegisterPage'
+import NGODashboard      from './pages/NGODashboard'
 import VolunteerDashboard from './pages/VolunteerDashboard'
-import RequestPage    from './pages/RequestPage'
+import RequestPage       from './pages/RequestPage'
+import NGOSelectionPage  from './pages/NGOSelectionPage'
 
 // Protected route wrapper
 const ProtectedRoute = ({ children, roles }) => {
@@ -39,8 +40,17 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/volunteer/join"
+          element={
+            <ProtectedRoute roles={['volunteer']}>
+              <NGOSelectionPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
   )
 }
+

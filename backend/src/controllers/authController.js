@@ -1,12 +1,12 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const NGO = require('../models/NGO');
-const Volunteer = require('../models/Volunteer');
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const NGO = require("../models/NGO");
+const Volunteer = require("../models/Volunteer");
 
 /** Generate JWT token */
 const signToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
   });
 
 /**
@@ -15,27 +15,34 @@ const signToken = (userId) =>
  */
 const register = async (req, res, next) => {
   try {
-    const { name, phone, email, password, role, ngo_id, skill_type, ngo } = req.body;
+    const { name, phone, email, password, role, ngo_id, skill_type, ngo } =
+      req.body;
 
     // Create base user
-    const user = await User.create({ name, phone, email, password, role: role || 'user' });
+    const user = await User.create({
+      name,
+      phone,
+      email,
+      password,
+      role: role || "user",
+    });
 
     // If registering as volunteer, create Volunteer profile
-    if (role === 'volunteer') {
+    if (role === "volunteer") {
       await Volunteer.create({
         user_id: user._id,
         ngo_id: ngo_id || null,
         name,
         phone,
-        skill_type: skill_type || 'General',
-        status: 'Available',
+        skill_type: skill_type || "General",
+        status: "Available",
       });
       user.ngo_id = ngo_id || null;
       await user.save();
     }
 
     // If registering as NGO admin, create NGO profile
-    if (role === 'ngo_admin' && ngo) {
+    if (role === "ngo_admin" && ngo) {
       const ngoDoc = await NGO.create({
         ...ngo,
         admin_user_id: user._id,
@@ -70,12 +77,16 @@ const login = async (req, res, next) => {
     const { phone, password } = req.body;
 
     if (!phone || !password) {
-      return res.status(400).json({ success: false, message: 'Phone and password required' });
+      return res
+        .status(400)
+        .json({ success: false, message: "Phone and password required" });
     }
 
     const user = await User.findOne({ phone });
     if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid credentials" });
     }
 
     const token = signToken(user._id);

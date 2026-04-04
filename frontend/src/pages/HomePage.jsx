@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
@@ -16,6 +16,36 @@ export default function HomePage() {
   const { user }          = useAuth()
   const [sosState, setSosState] = useState('idle') // idle | locating | sending | sent | error
   const [sosMsg, setSosMsg]     = useState('')
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false)
+    const handleOffline = () => setIsOffline(true)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  // ── SMS Fallback Handler ────────────────────────────────────────────────────
+  const handleSmsFallback = useCallback(async () => {
+    let lat = ''
+    let lng = ''
+    try {
+      const p = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+      )
+      lat = p.coords.latitude.toFixed(4)
+      lng = p.coords.longitude.toFixed(4)
+    } catch {
+      console.warn('Geolocation failed for SMS fallback')
+    }
+    const message = `R|${lat}|${lng}|HIGH`
+    const twilioNumber = '+1234567890' // TODO: Replace with real Twilio Number
+    window.location.href = `sms:${twilioNumber}?body=${encodeURIComponent(message)}`
+  }, [])
 
   // ── SOS Handler ─────────────────────────────────────────────────────────────
   const handleSOS = useCallback(async () => {
@@ -57,7 +87,7 @@ export default function HomePage() {
       setTimeout(() => setSosState('idle'), 5000)
     } catch (err) {
       setSosState('error')
-      setSosMsg('⚠️ Retrying via SMS fallback...')
+      setSosMsg('⚠️ Network Error: Tap "Send via SMS" as fallback')
       setTimeout(() => setSosState('idle'), 5000)
     }
   }, [sosState, user])
@@ -136,6 +166,15 @@ export default function HomePage() {
             📝 Manual Request
           </button>
         </div>
+
+        {/* Offline SMS Fallback Button */}
+        <button
+          onClick={handleSmsFallback}
+          className={`btn-ghost w-full max-w-md mt-4 py-4 border border-brand-500/30 text-brand-300 hover:bg-brand-500/10 ${isOffline ? 'animate-pulse ring-2 ring-brand-500 bg-brand-500/10' : ''}`}
+          id="sms-fallback-button"
+        >
+          {isOffline ? '📶 Offline: Tap to Send SMS SOS' : '📱 Send SOS via Text Message'}
+        </button>
 
         {/* SOS feedback message */}
         {sosMsg && (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import socket from '../services/socket'
@@ -133,9 +134,11 @@ function TaskCard({ task, onStatusUpdate }) {
 // ── Main Volunteer Dashboard ───────────────────────────────────────────────────
 export default function VolunteerDashboard() {
   const { user, logout } = useAuth()
+  const navigate          = useNavigate()
   const [tasks, setTasks]         = useState([])
   const [myStatus, setMyStatus]   = useState('Available')
   const [volunteerId, setVolId]   = useState(null)
+  const [hasNGO, setHasNGO]       = useState(true)  // assume true until loaded
   const [offer, setOffer]         = useState(null)
   const [loading, setLoading]     = useState(true)
   const [statusUpdating, setStatusUpdating] = useState(false)
@@ -144,33 +147,36 @@ export default function VolunteerDashboard() {
   const loadMyData = useCallback(async () => {
     if (!user) return
     try {
-      // Get my volunteer profile
-      const { data: volRes } = await api.get(`/volunteers?status=Available`)
-      // Find self among volunteers — in production, have a /volunteers/me endpoint
-      // For now, fetch tasks by user_id matching
-      const { data: meRes } = await api.get('/auth/me')
-      const uid = meRes.user._id
-
-      // Get my tasks from all assignments — simplified approach
-      // In production, backend filters by volunteer user_id
-      const { data: taskRes } = await api.get('/volunteers/' + uid + '/tasks')
-      setTasks(taskRes.data || [])
-
-      // Get my volunteer record to know status
-      const allVols = volRes.data || []
-      const me = allVols.find((v) => v.user_id === uid || v.name === user.name)
-      if (me) {
-        setVolId(me._id)
-        setMyStatus(me.status)
+      const { data: meRes } = await api.get('/volunteers/me')
+      const vol = meRes.data
+      setVolId(vol._id)
+      setMyStatus(vol.status)
+      // If volunteer has no NGO, redirect to selection page
+      if (!vol.ngo_id) {
+        setHasNGO(false)
+        navigate('/volunteer/join')
+        return
       }
+      setHasNGO(true)
+
+      const { data: taskRes } = await api.get('/volunteers/me/tasks')
+      setTasks(taskRes.data || [])
     } catch (err) {
       console.error('Failed to load volunteer data:', err)
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [user, navigate])
 
   useEffect(() => { loadMyData() }, [loadMyData])
+
+  // Redirect when approved in real-time (from NGO selection page flow)
+  useEffect(() => {
+    socket.on('join_request_response', ({ status }) => {
+      if (status === 'approved') loadMyData()
+    })
+    return () => socket.off('join_request_response')
+  }, [loadMyData])
 
   // ── Socket: listen for task offers ──────────────────────────────────────────
   useEffect(() => {

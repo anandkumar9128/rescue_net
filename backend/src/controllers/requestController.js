@@ -215,4 +215,4 @@ const getOfflineQueue = async (req, res) => {
   });
 };
 
-module.exports = { createRequest, getRequests, getClusters, getOfflineQueue };
+module.exports = { createRequest, getRequests, getClusters, getOfflineQueue, processPipeline };

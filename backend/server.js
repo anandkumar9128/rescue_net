@@ -78,10 +78,12 @@ app.use((req, res, next) => {
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth', require('./src/routes/auth'));
-app.use('/api/requests', require('./src/routes/requests'));
-app.use('/api/ngos', require('./src/routes/ngos'));
-app.use('/api/volunteers', require('./src/routes/volunteers'));
+app.use('/api/auth',          require('./src/routes/auth'));
+app.use('/api/requests',      require('./src/routes/requests'));
+app.use('/api/ngos',          require('./src/routes/ngos'));
+app.use('/api/volunteers',    require('./src/routes/volunteers'));
+app.use('/api/join-requests', require('./src/routes/joinRequests'));
+app.use('/api/sms-webhook',   require('./src/routes/smsRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
