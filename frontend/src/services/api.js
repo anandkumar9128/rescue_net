@@ -1,7 +1,13 @@
 import axios from 'axios'
 
+// If user provides a URL that already has /api, don't append it again
+const configuredUrl = import.meta.env.VITE_API_URL || '';
+const baseApiUrl = configuredUrl.endsWith('/api') 
+  ? configuredUrl 
+  : configuredUrl ? `${configuredUrl}/api` : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: baseApiUrl,
   timeout: 10000,
   headers: { 'Content-Type': 'application/json' },
 })
