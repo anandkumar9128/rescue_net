@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg-primary: #080f1e;
+    --color-bg-secondary: #0f172a;
+    --color-bg-card: #172033;
+    --color-brand: #f43f5e;
+    --color-brand-light: #fb7185;
+    --color-text-primary: #f1f5f9;
+    --color-text-secondary: #94a3b8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4 { font-family: 'Outfit', sans-serif; }
+}
+
+@layer components {
+  /* ── Glass Card ─────────────────────────────────────── */
+  .glass-card {
+    @apply bg-slate-800/60 backdrop-blur-md border border-slate-700/50 rounded-2xl;
+  }
+
+  /* ── Primary Button ─────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl
+           bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm
+           transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg
+           shadow-brand-500/25 disabled:opacity-60 disabled:cursor-not-allowed
+           disabled:hover:scale-100;
+  }
+
+  /* ── Ghost Button ───────────────────────────────────── */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
+           border border-slate-600 hover:border-brand-400 text-slate-300
+           hover:text-white font-medium text-sm transition-all duration-200
+           hover:bg-slate-700/50;
+  }
+
+  /* ── SOS Button ─────────────────────────────────────── */
+  .btn-sos {
+    @apply relative inline-flex items-center justify-center gap-3 px-8 py-5 rounded-2xl
+           bg-gradient-to-br from-brand-500 to-brand-700 text-white font-black
+           text-xl tracking-wide shadow-2xl shadow-brand-500/40
+           transition-all duration-200 hover:scale-105 active:scale-95
+           hover:shadow-brand-500/60;
+  }
+
+  /* ── Badge ──────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+
+  /* ── Input ──────────────────────────────────────────── */
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700
+           text-slate-100 placeholder-slate-500 text-sm
+           focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500
+           transition-all duration-200;
+  }
+
+  /* ── Select ─────────────────────────────────────────── */
+  .select-field {
+    @apply input-field appearance-none cursor-pointer;
+  }
+
+  /* ── Label xs ──────────────────────────────────────── */
+  .label-xs {
+    @apply block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2;
+  }
+
+  /* ── Status indicator dot ───────────────────────────── */
+  .status-dot {
+    @apply w-2 h-2 rounded-full inline-block;
+  }
+
+  /* ── Sidebar nav item ───────────────────────────────── */
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400
+           hover:text-white hover:bg-slate-700/60 transition-all duration-200
+           font-medium text-sm cursor-pointer;
+  }
+
+  .nav-item.active {
+    @apply text-white bg-brand-500/20 border border-brand-500/30 shadow-lg shadow-brand-500/10;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-400 to-rose-300 bg-clip-text text-transparent;
+  }
+
+  .border-glow {
+    box-shadow: 0 0 0 1px theme('colors.brand.500' / 40%), 0 0 20px theme('colors.brand.500' / 10%);
+  }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+/* Leaflet map override for dark theme */
+.leaflet-container { background: #0f172a !important; border-radius: 1rem; }
+.leaflet-tile-pane { filter: brightness(0.7) saturate(0.6); }
+
+/* Animated SOS ring */
+@keyframes sos-ring {
+  0%   { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.sos-ring {
+  animation: sos-ring 1.5s ease-out infinite;
+}
