@@ -37,7 +37,7 @@ const getMyTasks = async (req, res, next) => {
         .status(404)
         .json({ success: false, message: "Volunteer profile not found" });
     }
-    const tasks = await Assignment.find({ volunteer_id: volunteer._id })
+    const tasks = await Assignment.find({ 'volunteers.volunteer_id': volunteer._id })
       .populate("cluster_id")
       .populate("ngo_id", "name")
       .sort({ createdAt: -1 })
@@ -76,7 +76,7 @@ const getVolunteers = async (req, res, next) => {
 const getVolunteerTasks = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const tasks = await Assignment.find({ volunteer_id: id })
+    const tasks = await Assignment.find({ 'volunteers.volunteer_id': id })
       .populate("cluster_id")
       .populate("ngo_id", "name")
       .sort({ createdAt: -1 })
@@ -197,12 +197,16 @@ const updateAssignmentStatus = async (req, res, next) => {
         .json({ success: false, message: "Assignment not found" });
     }
 
-    // If completed, increment volunteer's completed count and free them
+    // If completed, increment all participating volunteers' completed counts and free them
     if (status === "Completed") {
-      await Volunteer.findByIdAndUpdate(assignment.volunteer_id, {
-        status: "Available",
-        $inc: { completed_tasks: 1 },
-      });
+      const volIds = assignment.volunteers.map(v => v.volunteer_id);
+      await Volunteer.updateMany(
+        { _id: { $in: volIds } },
+        { 
+          $set: { status: "Available" },
+          $inc: { completed_tasks: 1 } 
+        }
+      );
     }
 
     if (io && assignment.ngo_id) {

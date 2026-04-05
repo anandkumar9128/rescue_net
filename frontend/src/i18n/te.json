@@ -1,0 +1,20 @@
+{
+  "sos": "SOS అభ్యర్థన",
+  "manual_request": "మాన్యువల్ అభ్యర్థన",
+  "login_volunteer": "వాలంటీర్ లాగిన్",
+  "login_ngo": "NGO డాష్‌బోర్డ్",
+  "report_incident": "సంఘటనను నివేదించండి",
+  "tracking": "లైవ్ ట్రాకింగ్",
+  "languages": "భాషలు",
+  "welcome_back": "తిరిగి స్వాగతం",
+  "sign_in_rescuenet": "RescueNet కు సైన్ ఇన్ చేయండి",
+  "phone_number": "ఫోన్ నంబర్",
+  "password": "పాస్‌వర్డ్",
+  "sign_in_btn": "సైన్ ఇన్ చేయండి",
+  "signing_in": "సైన్ ఇన్ అవుతోంది...",
+  "dont_have_account": "ఖాతా లేదా?",
+  "register": "నమోదు చేయండి",
+  "back_to_home": "← హోమ్‌కు తిరిగి వెళ్లండి",
+  "dashboard": "డాష్‌బోర్డ్",
+  "logout": "లాగ్ అవుట్"
+}

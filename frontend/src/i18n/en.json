@@ -1,0 +1,20 @@
+{
+  "sos": "SOS Request",
+  "manual_request": "Manual Request",
+  "login_volunteer": "Volunteer Login",
+  "login_ngo": "NGO Dashboard",
+  "report_incident": "Report Incident",
+  "tracking": "Live Tracking",
+  "languages": "Languages",
+  "welcome_back": "Welcome back",
+  "sign_in_rescuenet": "Sign in to RescueNet",
+  "phone_number": "Phone Number",
+  "password": "Password",
+  "sign_in_btn": "Sign In",
+  "signing_in": "Signing in...",
+  "dont_have_account": "Don't have an account?",
+  "register": "Register",
+  "back_to_home": "← Back to Home",
+  "dashboard": "Dashboard",
+  "logout": "Logout"
+}

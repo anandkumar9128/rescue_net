@@ -1,0 +1,20 @@
+{
+  "sos": "এসওএস অনুরোধ",
+  "manual_request": "ম্যানুয়াল অনুরোধ",
+  "login_volunteer": "স্বেচ্ছাসেবক লগইন",
+  "login_ngo": "এনজিও ড্যাশবোর্ড",
+  "report_incident": "ঘটনা রিপোর্ট করুন",
+  "tracking": "লাইভ ট্র্যাকিং",
+  "languages": "ভাষাসমূহ",
+  "welcome_back": "স্বাগতম",
+  "sign_in_rescuenet": "RescueNet-এ সাইন ইন করুন",
+  "phone_number": "ফোন নম্বর",
+  "password": "পাসওয়ার্ড",
+  "sign_in_btn": "সাইন ইন",
+  "signing_in": "সাইন ইন হচ্ছে...",
+  "dont_have_account": "অ্যাকাউন্ট নেই?",
+  "register": "নিবন্ধন করুন",
+  "back_to_home": "← হোমে ফিরে যান",
+  "dashboard": "ড্যাশবোর্ড",
+  "logout": "লগআউট"
+}

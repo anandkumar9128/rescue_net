@@ -41,6 +41,7 @@ const getNGODashboard = async (req, res, next) => {
       Assignment.find({ ngo_id: ngoId })
         .populate("cluster_id")
         .populate("volunteer_id", "name phone status")
+        .populate("volunteers.volunteer_id", "name phone status")
         .sort({ createdAt: -1 })
         .limit(50),
       Volunteer.find({ ngo_id: ngoId }).sort({ status: 1 }),

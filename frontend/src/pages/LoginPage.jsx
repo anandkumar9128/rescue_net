@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTranslation } from "react-i18next";
 
 export default function LoginPage() {
   const { login, loading } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [form, setForm] = useState({ phone: "", password: "" });
   const [error, setError] = useState("");
 
@@ -35,9 +37,9 @@ export default function LoginPage() {
             <span className="text-white font-black text-2xl">R</span>
           </div>
           <h1 className="font-display font-bold text-3xl text-white">
-            Welcome back
+            {t('welcome_back')}
           </h1>
-          <p className="text-slate-400 text-sm mt-2">Sign in to RescueNet</p>
+          <p className="text-slate-400 text-sm mt-2">{t('sign_in_rescuenet')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="glass-card p-8 space-y-5">
@@ -49,7 +51,7 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              Phone Number
+              {t('phone_number')}
             </label>
             <input
               type="tel"
@@ -64,7 +66,7 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              Password
+              {t('password')}
             </label>
             <input
               type="password"
@@ -83,17 +85,17 @@ export default function LoginPage() {
             disabled={loading}
             id="login-submit"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? t('signing_in') : t('sign_in_btn')}
           </button>
         </form>
 
         <p className="text-center text-slate-500 text-sm mt-6">
-          Don't have an account?{" "}
+          {t('dont_have_account')}{" "}
           <Link
             to="/register"
             className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
           >
-            Register
+            {t('register')}
           </Link>
         </p>
         <p className="text-center mt-3">
@@ -101,7 +103,7 @@ export default function LoginPage() {
             to="/"
             className="text-slate-600 text-xs hover:text-slate-400 transition-colors"
           >
-            ← Back to Home
+            {t('back_to_home')}
           </Link>
         </p>
       </div>

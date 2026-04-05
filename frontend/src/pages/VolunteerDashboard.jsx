@@ -117,6 +117,116 @@ function TaskOfferModal({ offer, onAccept, onReject }) {
   );
 }
 
+// ── Report Emergency Modal (Backup) ────────────────────────────────────────────
+function ReportEmergencyModal({ onClose, defaultPos }) {
+  const { user } = useAuth();
+  const [formData, setFormData] = useState({
+    need_type: 'Rescue',
+    people_count: 1,
+    severity: 'High',
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [localPos, setLocalPos] = useState(defaultPos);
+  const [acquiring, setAcquiring] = useState(!defaultPos);
+
+  useEffect(() => {
+    if (!defaultPos && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocalPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setAcquiring(false);
+        },
+        (err) => {
+          console.warn("GPS error:", err);
+          setError("Failed to get GPS. Make sure location permissions are allowed.");
+          setAcquiring(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+  }, [defaultPos]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!localPos) {
+      setError("Waiting for GPS location...");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post('/requests', {
+        ...formData,
+        location: localPos,
+        is_sos: true,
+        submitter_name: user?.name || "Volunteer",
+        submitter_phone: user?.phone || "",
+        description: "Volunteer calling for backup / reporting incident",
+      });
+      onClose(true); // pass true to indicate success
+    } catch (err) {
+      setError("Failed to send request. Check your connection.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="glass-card p-6 max-w-sm w-full animate-slide-up border-brand-500/40">
+        <h2 className="font-display font-bold text-xl text-white mb-2 flex items-center gap-2">
+          <span>🚨</span> Report Emergency
+        </h2>
+        <p className="text-slate-400 text-xs mb-4">
+          Call for backup or report a new disaster sighted. This will alert all NGOs immediately.
+        </p>
+        
+        {error && <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-xl mb-4">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-slate-400 text-xs font-semibold mb-1 uppercase tracking-wider">Type of Need</label>
+            <select className="select-field w-full" value={formData.need_type} onChange={e => setFormData({...formData, need_type: e.target.value})}>
+              <option value="Rescue">🚁 Rescue / Evacuation</option>
+              <option value="Medical">🏥 Medical Emergency</option>
+              <option value="Food">🍱 Food & Water Delivery</option>
+              <option value="Shelter">🏠 Shelter Placement</option>
+            </select>
+          </div>
+          
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-slate-400 text-xs font-semibold mb-1 uppercase tracking-wider">Severity</label>
+              <select className="select-field w-full" value={formData.severity} onChange={e => setFormData({...formData, severity: e.target.value})}>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
+              </select>
+            </div>
+            <div className="w-24">
+              <label className="block text-slate-400 text-xs font-semibold mb-1 uppercase tracking-wider">People</label>
+              <input type="number" min="1" className="input-field w-full" value={formData.people_count} onChange={e => setFormData({...formData, people_count: parseInt(e.target.value)})} />
+            </div>
+          </div>
+
+          <div className="text-[10px] text-slate-500 bg-slate-900/50 p-2 rounded-lg">
+            📍 Current GPS will be attached automatically.
+            {acquiring && <span className="text-brand-400 block mt-1 animate-pulse">Acquiring current location...</span>}
+            {localPos && !acquiring && <span className="text-emerald-400 block mt-1">Location acquired: {localPos.lat.toFixed(4)}, {localPos.lng.toFixed(4)}</span>}
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => onClose(false)} className="btn-ghost flex-1 py-3 text-sm">Cancel</button>
+            <button type="submit" disabled={submitting || !localPos} className="btn-primary flex-1 py-3 text-sm flex justify-center items-center gap-2">
+              {submitting ? 'Sending...' : 'Alert NGOs'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Task Card ──────────────────────────────────────────────────────────────────
 function TaskCard({ task, onStatusUpdate }) {
   const [updating, setUpdating] = useState(false);
@@ -208,6 +318,7 @@ export default function VolunteerDashboard() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [volunteerPos, setVolunteerPos] = useState(null); // { lat, lng }
   const [trackingTaskId, setTrackingTaskId] = useState(null);
+  const [showReportModal, setShowReportModal] = useState(false);
   const watchIdRef = useRef(null);
   const locationIntervalRef = useRef(null);
 
@@ -248,7 +359,7 @@ export default function VolunteerDashboard() {
     return () => socket.off("join_request_response");
   }, [loadMyData]);
 
-  // ── Socket: listen for task offers ──────────────────────────────────────────
+  // ── Socket: listen for task offers and direct assignments ────────────
   useEffect(() => {
     socket.on("task_offer", (offerData) => {
       setOffer(offerData);
@@ -256,11 +367,18 @@ export default function VolunteerDashboard() {
     socket.on("task_taken", () => {
       setOffer(null); // Another volunteer accepted it
     });
+    socket.on("task_assigned", (data) => {
+      // Force user to En Route and load data automatically
+      setMyStatus("En Route");
+      alert(data.message || "🚨 EMERGENCY DISPATCH: You have been assigned directly to a task!");
+      loadMyData();
+    });
     return () => {
       socket.off("task_offer");
       socket.off("task_taken");
+      socket.off("task_assigned");
     };
-  }, []);
+  }, [loadMyData]);
 
   // ── Accept task ──────────────────────────────────────────────────────────────
   const handleAccept = async () => {
@@ -378,6 +496,17 @@ export default function VolunteerDashboard() {
         />
       )}
 
+      {/* Report Emergency Modal */}
+      {showReportModal && (
+        <ReportEmergencyModal 
+          onClose={(success) => {
+            setShowReportModal(false);
+            if (success) alert("Emergency reported successfully! NGOs have been alerted.");
+          }} 
+          defaultPos={volunteerPos || (activeTasks.length > 0 && activeTasks[0].cluster_id?.location)} 
+        />
+      )}
+
       {/* ── Topbar ── */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-slate-800/50 sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -392,7 +521,13 @@ export default function VolunteerDashboard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-slate-400 text-sm hidden md:block">
+          <button 
+            onClick={() => setShowReportModal(true)} 
+            className="hidden md:flex btn-primary px-3 py-1.5 text-xs gap-1 opacity-90 hover:opacity-100 bg-red-600 hover:bg-red-500 border-red-500"
+          >
+            <span>🚨</span> Report Emergency
+          </button>
+          <span className="text-slate-400 text-sm hidden md:block border-l border-slate-800 pl-3">
             {user?.name}
           </span>
           <button onClick={logout} className="btn-ghost text-xs py-2">
@@ -400,6 +535,14 @@ export default function VolunteerDashboard() {
           </button>
         </div>
       </header>
+
+      {/* Mobile Report Emergency Button (Floating) */}
+      <button 
+        onClick={() => setShowReportModal(true)}
+        className="md:hidden fixed bottom-6 right-6 z-40 btn-primary bg-red-600 hover:bg-red-500 border-red-500 shadow-xl shadow-red-900/50 w-12 h-12 rounded-full flex items-center justify-center text-xl"
+      >
+        🚨
+      </button>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         {/* ── Status Control Panel ── */}

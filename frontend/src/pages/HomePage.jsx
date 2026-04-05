@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { useTranslation } from 'react-i18next'
+import LanguageSwitcher from '../components/LanguageSwitcher'
 
 // ── Severity badge colors ──────────────────────────────────────────────────────
 const SEVERITY_COLORS = {
@@ -14,6 +16,7 @@ const SEVERITY_COLORS = {
 export default function HomePage() {
   const navigate          = useNavigate()
   const { user }          = useAuth()
+  const { t }             = useTranslation()
   const [sosState, setSosState] = useState('idle') // idle | locating | sending | sent | error
   const [sosMsg, setSosMsg]     = useState('')
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -192,7 +195,7 @@ export default function HomePage() {
               id="sos-button"
             >
               {sosState === 'locating' ? '📡' : sosState === 'sending' ? '⏳' : sosState === 'sent' ? '✅' : '🚨'}
-              {sosState === 'idle' ? 'SOS — Emergency' : sosState === 'sent' ? 'SOS Sent!' : 'Sending...'}
+              {sosState === 'idle' ? t('sos') : sosState === 'sent' ? 'SOS Sent!' : 'Sending...'}
             </button>
           </div>
 
@@ -202,7 +205,7 @@ export default function HomePage() {
             className="btn-ghost w-full sm:w-auto text-base py-4 px-6"
             id="manual-request-button"
           >
-            📝 Manual Request
+            📝 {t('manual_request')}
           </button>
         </div>
 
@@ -239,7 +242,7 @@ export default function HomePage() {
             id="volunteer-register-button"
           >
             <div className="text-2xl mb-2">🙋</div>
-            <div className="font-semibold text-white group-hover:text-brand-300 transition-colors">Register as Volunteer</div>
+            <div className="font-semibold text-white group-hover:text-brand-300 transition-colors">{t('login_volunteer')}</div>
             <div className="text-slate-500 text-xs mt-1">Join a local NGO response team</div>
           </button>
 
@@ -249,7 +252,7 @@ export default function HomePage() {
             id="ngo-register-button"
           >
             <div className="text-2xl mb-2">🏥</div>
-            <div className="font-semibold text-white group-hover:text-brand-300 transition-colors">Register as NGO</div>
+            <div className="font-semibold text-white group-hover:text-brand-300 transition-colors">{t('login_ngo')}</div>
             <div className="text-slate-500 text-xs mt-1">Manage resources and volunteers</div>
           </button>
         </div>

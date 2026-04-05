@@ -1,0 +1,20 @@
+{
+  "sos": "एसओएस अनुरोध",
+  "manual_request": "मैनुअल अनुरोध",
+  "login_volunteer": "स्वयंसेवक लॉगिन",
+  "login_ngo": "एनजीओ डैशबोर्ड",
+  "report_incident": "घटना की रिपोर्ट करें",
+  "tracking": "लाइव ट्रैकिंग",
+  "languages": "भाषाएँ",
+  "welcome_back": "वापसी पर स्वागत है",
+  "sign_in_rescuenet": "रेस्क्यूनेट में साइन इन करें",
+  "phone_number": "फ़ोन नंबर",
+  "password": "पासवर्ड",
+  "sign_in_btn": "साइन इन करें",
+  "signing_in": "साइन इन हो रहा है...",
+  "dont_have_account": "क्या आपके पास खाता नहीं है?",
+  "register": "रजिस्टर करें",
+  "back_to_home": "← होम पर वापस जाएँ",
+  "dashboard": "डैशबोर्ड",
+  "logout": "लॉग आउट"
+}

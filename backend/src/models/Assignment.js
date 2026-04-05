@@ -5,6 +5,16 @@ const assignmentSchema = new mongoose.Schema(
     cluster_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Cluster', required: true },
     ngo_id: { type: mongoose.Schema.Types.ObjectId, ref: 'NGO', required: true },
     volunteer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' },
+    
+    // Workforce details for team-based assignments
+    required_volunteers: { type: Number, default: 1 },
+    volunteers: [
+      {
+        volunteer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' },
+        status: { type: String, default: 'Accepted' },
+        responded_at: { type: Date, default: Date.now }
+      }
+    ],
 
     status: {
       type: String,

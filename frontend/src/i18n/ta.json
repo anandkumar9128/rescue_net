@@ -1,0 +1,20 @@
+{
+  "sos": "எஸ்.ஓ.எஸ் கோரிக்கை",
+  "manual_request": "கைமுறை கோரிக்கை",
+  "login_volunteer": "தொண்டர் உள்நுழைவு",
+  "login_ngo": "என்.ஜி.ஓ டாஷ்போர்டு",
+  "report_incident": "சம்பவத்தை புகாரளிப",
+  "tracking": "நேரடி கண்காணிப்பு",
+  "languages": "மொழிகள்",
+  "welcome_back": "மீண்டும் வருக",
+  "sign_in_rescuenet": "RescueNet இல் உள்நுழைக",
+  "phone_number": "தொலைபேசி எண்",
+  "password": "கடவுச்சொல்",
+  "sign_in_btn": "உள்நுழைய",
+  "signing_in": "உள்நுழைகிறது...",
+  "dont_have_account": "கணக்கு இல்லையா?",
+  "register": "பதிவு செய்",
+  "back_to_home": "← முகப்பிற்குத் திரும்பு",
+  "dashboard": "டாஷ்போர்டு",
+  "logout": "வெளியேறு"
+}

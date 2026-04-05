@@ -1,0 +1,20 @@
+{
+  "sos": "SOS അഭ്യർത്ഥന",
+  "manual_request": "മാനുവൽ അഭ്യർത്ഥന",
+  "login_volunteer": "വളണ്ടിയർ ലോഗിൻ",
+  "login_ngo": "എൻജിഒ ഡാഷ്‌ബോർഡ്",
+  "report_incident": "സംഭവം റിപ്പോർട്ട് ചെയ്യുക",
+  "tracking": "തത്സമയ ട്രാക്കിംഗ്",
+  "languages": "ഭാഷകൾ",
+  "welcome_back": "സ്വാഗതം",
+  "sign_in_rescuenet": "RescueNet-ലേക്ക് സൈൻ ഇൻ ചെയ്യുക",
+  "phone_number": "ഫോൺ നമ്പർ",
+  "password": "പാസ്‌വേഡ്",
+  "sign_in_btn": "സൈൻ ഇൻ ചെയ്യുക",
+  "signing_in": "സൈൻ ഇൻ ചെയ്യുന്നു...",
+  "dont_have_account": "അക്കൗണ്ട് ഇല്ലേ?",
+  "register": "രജിസ്റ്റർ ചെയ്യുക",
+  "back_to_home": "← ഹോമിലേക്ക് മടങ്ങുക",
+  "dashboard": "ഡാഷ്‌ബോർഡ്",
+  "logout": "ലോഗൗട്ട്"
+}

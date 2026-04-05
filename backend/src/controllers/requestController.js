@@ -2,17 +2,14 @@ const Request = require("../models/Request");
 const Cluster = require("../models/Cluster");
 const Assignment = require("../models/Assignment");
 const { clusterRequest } = require("../services/clusteringService");
-const {
-  calculatePriorityScore,
-  calculateClusterPriority,
-} = require("../services/priorityService");
-const { selectNGO } = require("../services/ngoSelectionService");
-const { assignVolunteers } = require("../services/volunteerAssignmentService");
+const { calculatePriorityScore, calculateClusterPriority } = require("../services/priorityService");
+// We remove selectNGO and assignVolunteers since they are archaic now
+const { dispatchRequest } = require("../services/dispatch.service");
 const { sendEmergencySMS } = require("../services/smsService");
 const offlineQueue = require("../utils/offlineQueue");
 
 /**
- * Core pipeline: save → cluster → prioritize → assign NGO → assign volunteers
+ * Core pipeline: save → cluster → prioritize → auto-dispatch
  */
 const processPipeline = async (requestDoc, io) => {
   try {
@@ -32,7 +29,7 @@ const processPipeline = async (requestDoc, io) => {
     cluster.priority_score = calculateClusterPriority(cluster);
     await cluster.save();
 
-    // Step 4: Notify NGO dashboard via Socket.io (Global Broadcast)
+    // Step 4: Notify NGO dashboards globally that a new cluster physically exists
     if (io) {
       io.emit("new_cluster", {
         cluster_id: cluster._id,
@@ -44,11 +41,18 @@ const processPipeline = async (requestDoc, io) => {
       });
     }
 
-    // Step 5: Stop here. Do NOT auto-assign. 
-    // The cluster remains "Open" and will be claimed manually by an NGO from the Shared Pool.
-    console.log(`📍 Cluster ${cluster._id} mapped to Shared Pool. Waiting for NGO claim.`);
+    // Step 5: Automatically run the rigorous radius dispatch protocol
+    console.log(`🚀 Initiating Automated Dispatch Protocol for Cluster ${cluster._id}`);
+    
+    // We await the dispatch attempt so the SMS/API endpoints can accurately check if it was successfully assigned
+    await dispatchRequest(cluster, io).catch(err => {
+      console.error(`Automated Dispatch Error for Cluster ${cluster._id}:`, err);
+    });
 
-    return cluster;
+    // Re-fetch the cluster so we can return its fresh status (e.g., 'Assigned')
+    const finalCluster = await Cluster.findById(cluster._id);
+
+    return finalCluster;
   } catch (err) {
     console.error(`❌ Pipeline error: ${err.message}`);
     throw err;

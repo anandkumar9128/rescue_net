@@ -7,6 +7,7 @@ import NGODashboard      from './pages/NGODashboard'
 import VolunteerDashboard from './pages/VolunteerDashboard'
 import RequestPage       from './pages/RequestPage'
 import NGOSelectionPage  from './pages/NGOSelectionPage'
+import LanguageSwitcher  from './components/LanguageSwitcher'
 
 // Protected route wrapper
 const ProtectedRoute = ({ children, roles }) => {
@@ -19,6 +20,9 @@ const ProtectedRoute = ({ children, roles }) => {
 export default function App() {
   return (
     <AuthProvider>
+      <div className="fixed bottom-6 right-6 z-50 shadow-2xl rounded-xl">
+        <LanguageSwitcher />
+      </div>
       <Routes>
         <Route path="/"             element={<HomePage />} />
         <Route path="/login"        element={<LoginPage />} />
