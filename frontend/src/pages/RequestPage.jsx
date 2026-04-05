@@ -57,8 +57,34 @@ export default function RequestPage() {
         detectedRef.current = loc
         setDetectedLoc(loc)
         setGpsState('ready')
+        
+        // Cache for offline use
+        localStorage.setItem('rn_last_loc', JSON.stringify({ 
+          lat: lat.toFixed(5), 
+          lng: lng.toFixed(5), 
+          address,
+          ts: Date.now() 
+        }))
       } catch {
-        if (!cancelled) setGpsState('failed')
+        if (!cancelled) {
+          // Attempt offline fallback first
+          try {
+            const lastLoc = JSON.parse(localStorage.getItem('rn_last_loc'))
+            if (lastLoc && lastLoc.lat) {
+              const loc = { 
+                lat: parseFloat(lastLoc.lat), 
+                lng: parseFloat(lastLoc.lng), 
+                address: lastLoc.address || 'Last known location ⚠️ (Offline/Cached)' 
+              }
+              detectedRef.current = loc
+              setDetectedLoc(loc)
+              setGpsState('ready')
+              return
+            }
+          } catch (e) {}
+          
+          setGpsState('failed')
+        }
       }
     }
     detect()

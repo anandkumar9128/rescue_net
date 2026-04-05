@@ -23,6 +23,22 @@ export default function HomePage() {
     const handleOffline = () => setIsOffline(true)
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    
+    // Background location pre-fetch so we have a fallback if they go offline
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          localStorage.setItem('rn_last_loc', JSON.stringify({
+            lat: pos.coords.latitude.toFixed(5),
+            lng: pos.coords.longitude.toFixed(5),
+            ts: Date.now()
+          }))
+        },
+        () => {}, // ignore errors silently
+        { maximumAge: 60000, timeout: 5000, enableHighAccuracy: true }
+      )
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
@@ -35,16 +51,24 @@ export default function HomePage() {
     let lng = ''
     try {
       const p = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, enableHighAccuracy: true })
       )
-      lat = p.coords.latitude.toFixed(4)
-      lng = p.coords.longitude.toFixed(4)
+      lat = p.coords.latitude.toFixed(5)
+      lng = p.coords.longitude.toFixed(5)
+      localStorage.setItem('rn_last_loc', JSON.stringify({ lat, lng, ts: Date.now() }))
     } catch {
-      console.warn('Geolocation failed for SMS fallback')
+      console.warn('Geolocation failed for SMS, using localStorage fallback')
+      try {
+        const lastLoc = JSON.parse(localStorage.getItem('rn_last_loc'))
+        if (lastLoc && lastLoc.lat) {
+          lat = lastLoc.lat
+          lng = lastLoc.lng
+        }
+      } catch (e) {}
     }
-    const message = `R|${lat}|${lng}|HIGH`
+    const message = `SOS|R|${lat}|${lng}|HIGH`
     // Use the custom Android Hub phone number instead of Twilio
-    const forwarderNumber = import.meta.env.VITE_FORWARDER_PHONE_NUMBER || '+917488824315' 
+    const forwarderNumber = import.meta.env.VITE_FORWARDER_PHONE_NUMBER || '+919128171568'
     window.location.href = `sms:${forwarderNumber}?body=${encodeURIComponent(message)}`
   }, [])
 
@@ -61,12 +85,26 @@ export default function HomePage() {
         navigator.geolocation.getCurrentPosition(
           (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
           (e) => reject(e),
-          { timeout: 8000 }
+          { timeout: 8000, enableHighAccuracy: true }
         )
       )
+      localStorage.setItem('rn_last_loc', JSON.stringify({ 
+        lat: coords.lat.toFixed(5), 
+        lng: coords.lng.toFixed(5), 
+        ts: Date.now() 
+      }))
     } catch {
-      // Fallback to generic location if GPS unavailable
-      coords = { lat: 28.6139, lng: 77.2090 }
+      // Fallback to localStorage if live GPS fails
+      try {
+        const lastLoc = JSON.parse(localStorage.getItem('rn_last_loc'))
+        if (lastLoc && lastLoc.lat) {
+          coords = { lat: parseFloat(lastLoc.lat), lng: parseFloat(lastLoc.lng) }
+        } else {
+          coords = { lat: 28.6139, lng: 77.2090 } // hard fallback
+        }
+      } catch (e) {
+        coords = { lat: 28.6139, lng: 77.2090 }
+      }
     }
 
     setSosState('sending')
