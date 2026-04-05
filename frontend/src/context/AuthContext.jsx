@@ -37,12 +37,13 @@ export const AuthProvider = ({ children }) => {
     setLoading(true)
     try {
       const { data } = await api.post('/auth/login', { phone, password })
+      if (!data.user) throw new Error("Backend did not return user data.")
       localStorage.setItem('rn_token', data.token)
       localStorage.setItem('rn_user', JSON.stringify(data.user))
       setUser(data.user)
       return { success: true, user: data.user }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Login failed' }
+      return { success: false, message: err.message || err.response?.data?.message || 'Login failed' }
     } finally {
       setLoading(false)
     }
@@ -52,12 +53,13 @@ export const AuthProvider = ({ children }) => {
     setLoading(true)
     try {
       const { data } = await api.post('/auth/register', payload)
+      if (!data.user) throw new Error("Backend did not return user data.")
       localStorage.setItem('rn_token', data.token)
       localStorage.setItem('rn_user', JSON.stringify(data.user))
       setUser(data.user)
       return { success: true, user: data.user }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Registration failed' }
+      return { success: false, message: err.message || err.response?.data?.message || 'Registration failed' }
     } finally {
       setLoading(false)
     }
