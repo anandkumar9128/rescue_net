@@ -2,76 +2,76 @@ const Request = require('../models/Request');
 const { processPipeline } = require('./requestController');
 
 /**
- * Handle incoming SMS from Twilio webhook
+ * Handle incoming SMS from Generic Android webhook
  * POST /api/sms-webhook
- * Payload format: application/x-www-form-urlencoded
- * Body: "TYPE|LAT|LNG|SEVERITY"
+ * Payload format: JSON
  */
 const handleSmsWebhook = async (req, res) => {
   const io = req.app.get('io');
-  const twiml = new twilio.twiml.MessagingResponse();
-
+  
   try {
-    const { Body, From } = req.body;
+    // SMS Forwarder apps use various formats. Flexible extraction of generic fields:
+    const Body = req.body.message || req.body.content || req.body.Body || req.body.text || req.body;
+    const From = req.body.sender || req.body.from || req.body.From || 'Unknown';
 
     // 1. Log incoming SMS
-    console.log(`📩 Incoming SMS from ${From}: "${Body}"`);
+    console.log(`📩 Incoming Webhook from ${From}:`, JSON.stringify(req.body));
 
-    if (!Body || !From) {
-      console.error('❌ Invalid Twilio payload (missing Body or From)');
-      return res.status(400).send('Bad Request');
+    if (!Body || typeof Body !== 'string') {
+      console.error('❌ Invalid payload (missing or invalid Body)');
+      return res.status(400).json({ success: false, message: 'Bad Request: Missing message body' });
     }
 
-    console.log(`📩 Processing SMS from ${sender}: "${message}"`);
-
-    // 2. Parse the SMS format (TYPE|LAT|LNG|SEVERITY)
-    const parts = Body.trim().split('|');
+    // 2. Parse the SMS format (SOS|TYPE|LAT|LNG|SEVERITY)
+    // Accept optional SOS| prefix, but fallback
+    let messageText = Body.trim();
+    if (messageText.toUpperCase().startsWith('SOS|')) {
+      messageText = messageText.substring(4);
+    }
+    
+    // Now expect TYPE|LAT|LNG|SEVERITY
+    const parts = messageText.split('|');
     if (parts.length < 4) {
-      twiml.message('Invalid format. Use TYPE|LAT|LNG|SEVERITY');
-      return res.type('text/xml').send(twiml.toString());
+      return res.status(400).json({ success: false, message: 'Invalid format. Use SOS|TYPE|LAT|LNG|SEVERITY' });
     }
 
     const [rawType, rawLat, rawLng, rawSeverity] = parts;
 
-    // 2. Parse and Validate Coordinates
+    // Parse values
     const lat = parseFloat(rawLat);
     const lng = parseFloat(rawLng);
 
     if (isNaN(lat) || isNaN(lng)) {
-      twiml.message('Invalid coordinates. Please ensure LAT and LNG are numbers.');
-      return res.type('text/xml').send(twiml.toString());
+      return res.status(400).json({ success: false, message: 'Invalid coordinates. Ensure LAT and LNG are numbers.' });
     }
 
-    // 3. Map Need Type
+    // Map need type
     const typeMap = {
       M: 'Medical',
       F: 'Food',
       R: 'Rescue',
     };
     const need_type = typeMap[rawType.toUpperCase()];
-    
     if (!need_type) {
-      twiml.message('Invalid TYPE. Use M (Medical), F (Food), or R (Rescue).');
-      return res.type('text/xml').send(twiml.toString());
+      return res.status(400).json({ success: false, message: 'Invalid TYPE. Use M, F, or R.' });
     }
 
-    // 4. Map Severity
+    // Map severity
     const sevUpper = rawSeverity.toUpperCase();
     let severity = 'Medium';
     if (sevUpper.includes('HIGH')) severity = 'High';
-    else if (sevUpper.includes('LOW')) severity = 'Low';
+    if (sevUpper.includes('LOW')) severity = 'Low';
 
-    // 5. Deduplication Check (Same phone, recent time)
+    // 3. Deduplication Check (Same phone, recent time)
     const recentTimeLimit = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes
     const duplicate = await Request.findOne({
-      submitter_phone: sender,
+      submitter_phone: From,
       createdAt: { $gte: recentTimeLimit },
     });
 
     if (duplicate) {
       console.log(`⚠️ Duplicate request blocked from ${From}`);
-      twiml.message('Request already registered for your location.');
-      return res.type('text/xml').send(twiml.toString());
+      return res.status(200).json({ success: true, message: 'Request already registered for your location.' });
     }
 
     // 4. Map Data and Create Request
@@ -83,7 +83,7 @@ const handleSmsWebhook = async (req, res) => {
       need_type,
       people_count: 1, // Defaulting for SMS
       severity,
-      description: `Emergency reported via SMS: ${Body}`,
+      description: `Emergency reported via SMS:\n${Body}`,
       is_sos: true,
       source: 'sms', // Traceability
     });
@@ -94,27 +94,19 @@ const handleSmsWebhook = async (req, res) => {
     try {
       const cluster = await processPipeline(requestDoc, io);
       
-      // Bonus: If no NGO available (cluster generated, but assignment maybe missing in assigned scope)
-      // Actually `processPipeline` selects NGO. Let's see if the cluster was assigned.
-      if (cluster.status === 'Assigned') {
-        twiml.message('Request received. Help is on the way.');
+      if (cluster && cluster.status === 'Assigned') {
+         return res.status(200).json({ success: true, message: 'Request received. Help is on the way.' });
       } else {
-        twiml.message('Request received. Trying to assign help.');
+         return res.status(200).json({ success: true, message: 'Request received. Trying to assign help.' });
       }
     } catch (pipelineErr) {
       console.error(`❌ SMS Pipeline Error: ${pipelineErr.message}`);
-      // The request was saved, but pipeline failed for some reason
-      twiml.message('Request received. Trying to assign help.');
+      return res.status(200).json({ success: true, message: 'Request recorded.' });
     }
-
-    // Return TwiML response
-    res.type('text/xml').send(twiml.toString());
 
   } catch (err) {
     console.error(`❌ SMS Webhook Error: ${err.message}`);
-    // Respond with a default error message
-    twiml.message('An error occurred while processing your request. Please try again.');
-    res.type('text/xml').send(twiml.toString());
+    return res.status(500).json({ success: false, message: 'An error occurred while processing your request.' });
   }
 };
 
