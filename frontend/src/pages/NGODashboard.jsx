@@ -190,6 +190,8 @@ export default function NGODashboard() {
 
   // ── Real-time updates ────────────────────────────────────────────────────────
   useEffect(() => {
+    socket.connect()
+
     const addAlert = (msg, type = 'info') => {
       const id = Date.now()
       setAlerts((prev) => [{ id, msg, type }, ...prev.slice(0, 4)])
@@ -198,6 +200,10 @@ export default function NGODashboard() {
 
     socket.on('new_assignment', (data) => {
       addAlert(`🆕 New ${data.need_type} request — ${data.total_people} people`, 'new')
+      loadDashboard()
+    })
+    socket.on('new_cluster', (data) => {
+      addAlert(`📍 New cluster: ${data.need_type} (${data.total_people} people)`, 'new')
       loadDashboard()
     })
     socket.on('volunteer_accepted',        () => { loadDashboard() })
@@ -219,6 +225,7 @@ export default function NGODashboard() {
 
     return () => {
       socket.off('new_assignment')
+      socket.off('new_cluster')
       socket.off('volunteer_accepted')
       socket.off('assignment_status_update')
       socket.off('volunteer_status_update')
