@@ -130,12 +130,32 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers, volunteerPos, onTrack
         </div>
       </div>
 
-      {a.volunteer_id && (
-        <div className="text-xs text-slate-400">
-          👤 Volunteer: <span className="text-slate-200 font-medium">{a.volunteer_id?.name || 'Assigned'}</span>
-          {a.volunteer_id?.status && <span className="ml-2 text-slate-500">({a.volunteer_id.status})</span>}
-        </div>
-      )}
+      <div className="flex flex-col gap-1 mt-2 border-t border-slate-800/50 pt-2">
+        {a.volunteers?.filter(v => v.status === 'Accepted').map((vEntry) => {
+          const vol = vEntry.volunteer_id;
+          if (!vol) return null;
+          return (
+            <div key={vol._id || Math.random()} className="text-xs text-slate-400">
+              👤 Team Member: <span className="text-slate-200 font-medium">{vol.name || 'Assigned'}</span>
+              {vol.status && <span className="ml-2 text-slate-500">({vol.status})</span>}
+            </div>
+          )
+        })}
+        
+        {/* Legacy fallback if volunteers array is missing but volunteer_id exists */}
+        {(!a.volunteers || a.volunteers.filter(v => v.status === 'Accepted').length === 0) && a.volunteer_id && (
+          <div className="text-xs text-slate-400">
+            👤 Volunteer: <span className="text-slate-200 font-medium">{a.volunteer_id?.name || 'Assigned'}</span>
+            {a.volunteer_id?.status && <span className="ml-2 text-slate-500">({a.volunteer_id.status})</span>}
+          </div>
+        )}
+
+        {['Pending', 'Volunteer Assigned', 'En Route', 'On Task'].includes(a.status) && (
+          <div className="text-[10px] text-brand-400 font-medium mt-1">
+            Team constraint: {a.volunteers?.filter(v => v.status === 'Accepted').length || (a.volunteer_id ? 1 : 0)} / {a.required_volunteers || 1} volunteers assigned
+          </div>
+        )}
+      </div>
 
       {/* Override button */}
       {['Pending', 'Volunteer Assigned'].includes(a.status) && (
@@ -165,7 +185,65 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers, volunteerPos, onTrack
   )
 }
 
-// ── Tracking Modal ─────────────────────────────────────────────────────────────────────
+// ── Open Cluster Row (Shared Pool) ───────────────────────────────────────────────
+function OpenClusterRow({ cluster, volunteers, onClaim }) {
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [selectedVol, setSelectedVol]   = useState('')
+  const [submitting, setSubmitting]      = useState(false)
+
+  const handleClaim = async () => {
+    if (!selectedVol) return
+    setSubmitting(true)
+    await onClaim(cluster._id, selectedVol)
+    setSubmitting(false)
+    setClaimOpen(false)
+  }
+
+  return (
+    <div className="glass-card p-4 space-y-3 relative overflow-hidden border-brand-500/30">
+      <div className="absolute top-0 right-0 px-2 py-1 bg-brand-500/20 text-brand-400 text-[10px] font-bold tracking-widest uppercase rounded-bl-lg">
+        Shared Pool
+      </div>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{NEED_ICONS[cluster?.need_type] || '📍'}</span>
+            <span className="font-semibold text-white text-sm">{cluster?.need_type || 'Unknown'}</span>
+          </div>
+          <div className="text-slate-500 text-xs mt-0.5">
+            👥 {cluster?.total_people || 0} people · {cluster?.location?.address || `${cluster?.location?.lat?.toFixed(3)}, ${cluster?.location?.lng?.toFixed(3)}`}
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={SEVERITY_BADGE[cluster.max_severity]}>{cluster.max_severity} SOS</span>
+            <span className="text-slate-500 text-[10px]">Score: {cluster.priority_score?.toFixed(1)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <button onClick={() => setClaimOpen(!claimOpen)}
+          className="text-xs text-brand-400 hover:text-brand-300 font-medium transition-colors">
+          {claimOpen ? '✕ Cancel' : '⚡ Claim Request & Assign'}
+        </button>
+        {claimOpen && (
+          <div className="mt-2 flex gap-2 animate-fade-in">
+            <select className="select-field flex-1 py-2 text-xs" value={selectedVol}
+              onChange={(e) => setSelectedVol(e.target.value)}>
+              <option value="">Select volunteer...</option>
+              {volunteers.filter(v => v.status === 'Available').map(v => (
+                <option key={v._id} value={v._id}>{v.name} ({v.skill_type})</option>
+              ))}
+            </select>
+            <button onClick={handleClaim} disabled={submitting || !selectedVol}
+              className="btn-primary py-2 px-4 text-xs">
+              {submitting ? '...' : 'Claim'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 function TrackingModal({ assignment, volunteerPos, onClose }) {
   const cluster = assignment?.cluster_id
   return (
@@ -267,6 +345,9 @@ export default function NGODashboard() {
       setNewClusterCount((n) => n + 1)  // ← increment notification badge
       loadDashboard()
     })
+    socket.on('cluster_claimed', () => {
+      loadDashboard()
+    })
     socket.on('volunteer_accepted',        () => { loadDashboard() })
     socket.on('assignment_status_update',  (data) => {
       addAlert(`📋 Assignment ${data.status}`, 'update')
@@ -288,6 +369,7 @@ export default function NGODashboard() {
       socket.off('volunteer_location')
       socket.off('new_assignment')
       socket.off('new_cluster')
+      socket.off('cluster_claimed')
       socket.off('volunteer_accepted')
       socket.off('assignment_status_update')
       socket.off('volunteer_status_update')
@@ -306,6 +388,17 @@ export default function NGODashboard() {
     }
   }
 
+  // ── Claim an Open Cluster ──────────────────────────────────────────────────────
+  const handleClaim = async (clusterId, volunteerId) => {
+    try {
+      await api.post(`/ngos/${ngoId}/clusters/${clusterId}/claim`, { volunteer_id: volunteerId })
+      loadDashboard()
+    } catch (err) {
+      console.error('Claim failed:', err)
+      addAlert('Failed to claim cluster. Someone else might have grabbed it.', 'warning')
+    }
+  }
+
   // ── Respond to join request ───────────────────────────────────────────────────
   const handleJoinResponse = async (requestId, action) => {
     setRespondingId(requestId)
@@ -321,13 +414,14 @@ export default function NGODashboard() {
 
   // ── Computed stats ────────────────────────────────────────────────────────────
   const pendingJoins = joinRequests.filter(r => r.status === 'pending').length
+  const openClusters = data.clusters.filter(c => c.status === 'Open');
 
   const stats = {
     active:        data.assignments.filter(a => !['Completed', 'Cancelled'].includes(a.status)).length,
     completed:     data.assignments.filter(a => a.status === 'Completed').length,
     available:     data.volunteers.filter(v => v.status === 'Available').length,
     total_vol:     data.volunteers.length,
-    open_clusters: data.clusters.length,
+    open_clusters: openClusters.length,
   }
 
   const TABS = [
@@ -389,7 +483,7 @@ export default function NGODashboard() {
             { label: 'Completed',      value: stats.completed,     icon: '✅', color: 'text-emerald-400' },
             { label: 'Available Vols', value: stats.available,     icon: '🙋', color: 'text-blue-400' },
             { label: 'Total Vols',     value: stats.total_vol,     icon: '👥', color: 'text-slate-300' },
-            { label: 'Open Clusters',  value: stats.open_clusters, icon: '🗺',  color: 'text-purple-400' },
+            { label: 'Open Shared',    value: stats.open_clusters, icon: '🗺',  color: 'text-purple-400' },
           ].map((s) => (
             <div key={s.label} className="glass-card p-4 text-center">
               <div className="text-2xl mb-1">{s.icon}</div>
@@ -426,27 +520,53 @@ export default function NGODashboard() {
           <>
             {/* Overview */}
             {tab === 'overview' && (
-              <div className="grid md:grid-cols-2 gap-6 animate-fade-in">
-                <div className="glass-card p-6">
-                  <h3 className="font-display font-bold text-white mb-4">Recent Assignments</h3>
+              <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
+                
+                {/* SHARED POOL (Open Requests) */}
+                <div className="glass-card p-6 lg:col-span-1 border border-brand-500/20 bg-brand-950/10">
+                  <h3 className="font-display font-bold text-white mb-4 flex items-center justify-between">
+                    <span>🚨 Open Shared Pool</span>
+                    <span className="badge bg-brand-500/20 text-brand-400">{openClusters.length}</span>
+                  </h3>
                   <div className="space-y-3">
-                    {data.assignments.slice(0, 5).map((a) => (
-                    <AssignmentRow
-                      key={a._id} a={a} ngoId={ngoId}
-                      onOverride={handleOverride}
-                      volunteers={data.volunteers}
-                      volunteerPos={volunteerPositions[a._id]}
-                      onTrack={setTrackingAssignment}
-                    />
-                  ))}
-                    {data.assignments.length === 0 && <div className="text-slate-500 text-sm">No assignments yet</div>}
+                    {openClusters.slice(0, 8).map((c) => (
+                      <OpenClusterRow
+                        key={c._id} cluster={c} volunteers={data.volunteers}
+                        onClaim={handleClaim}
+                      />
+                    ))}
+                    {openClusters.length === 0 && (
+                      <div className="text-slate-500 text-sm text-center py-8">
+                        No open requests right now. 
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="glass-card p-6">
-                  <h3 className="font-display font-bold text-white mb-4">Volunteer Status</h3>
-                  <div>
-                    {data.volunteers.map((v) => <VolunteerRow key={v._id} vol={v} />)}
-                    {data.volunteers.length === 0 && <div className="text-slate-500 text-sm">No volunteers registered</div>}
+
+                {/* NGO's own assignments and volunteers */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="glass-card p-6">
+                    <h3 className="font-display font-bold text-white mb-4">Your Recent Assignments</h3>
+                    <div className="space-y-3">
+                      {data.assignments.slice(0, 5).map((a) => (
+                      <AssignmentRow
+                        key={a._id} a={a} ngoId={ngoId}
+                        onOverride={handleOverride}
+                        volunteers={data.volunteers}
+                        volunteerPos={volunteerPositions[a._id]}
+                        onTrack={setTrackingAssignment}
+                      />
+                    ))}
+                      {data.assignments.length === 0 && <div className="text-slate-500 text-sm">No assignments yet</div>}
+                    </div>
+                  </div>
+                  
+                  <div className="glass-card p-6">
+                    <h3 className="font-display font-bold text-white mb-4">Volunteer Status</h3>
+                    <div>
+                      {data.volunteers.map((v) => <VolunteerRow key={v._id} vol={v} />)}
+                      {data.volunteers.length === 0 && <div className="text-slate-500 text-sm">No volunteers registered</div>}
+                    </div>
                   </div>
                 </div>
               </div>

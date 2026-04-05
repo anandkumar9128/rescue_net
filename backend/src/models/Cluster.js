@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 /**
  * A Cluster is a merged group of nearby requests with the same need_type.
@@ -15,12 +15,12 @@ const clusterSchema = new mongoose.Schema(
 
     need_type: {
       type: String,
-      enum: ['Medical', 'Food', 'Rescue', 'Shelter'],
+      enum: ["Medical", "Food", "Rescue", "Shelter"],
       required: true,
     },
 
     // All request IDs merged into this cluster
-    request_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Request' }],
+    request_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: "Request" }],
 
     // Total people across all merged requests
     total_people: { type: Number, default: 0 },
@@ -28,8 +28,8 @@ const clusterSchema = new mongoose.Schema(
     // Worst severity in cluster drives priority
     max_severity: {
       type: String,
-      enum: ['Low', 'Medium', 'High', 'Critical'],
-      default: 'Medium',
+      enum: ["Low", "Medium", "High", "Critical"],
+      default: "Medium",
     },
 
     // Computed priority score
@@ -37,17 +37,17 @@ const clusterSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ['Open', 'Assigned', 'In Progress', 'Resolved'],
-      default: 'Open',
+      enum: ["Open", "Assigned", "In Progress", "Resolved"],
+      default: "Open",
     },
 
     // Resolved at timestamp
     resolved_at: { type: Date },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-clusterSchema.index({ 'location.lat': 1, 'location.lng': 1 });
+clusterSchema.index({ "location.lat": 1, "location.lng": 1 });
 clusterSchema.index({ need_type: 1, status: 1 });
 
-module.exports = mongoose.model('Cluster', clusterSchema);
+module.exports = mongoose.model("Cluster", clusterSchema);

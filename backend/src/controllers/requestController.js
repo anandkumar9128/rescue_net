@@ -1,12 +1,15 @@
-const Request = require('../models/Request');
-const Cluster = require('../models/Cluster');
-const Assignment = require('../models/Assignment');
-const { clusterRequest } = require('../services/clusteringService');
-const { calculatePriorityScore, calculateClusterPriority } = require('../services/priorityService');
-const { selectNGO } = require('../services/ngoSelectionService');
-const { assignVolunteers } = require('../services/volunteerAssignmentService');
-const { sendEmergencySMS } = require('../services/smsService');
-const offlineQueue = require('../utils/offlineQueue');
+const Request = require("../models/Request");
+const Cluster = require("../models/Cluster");
+const Assignment = require("../models/Assignment");
+const { clusterRequest } = require("../services/clusteringService");
+const {
+  calculatePriorityScore,
+  calculateClusterPriority,
+} = require("../services/priorityService");
+const { selectNGO } = require("../services/ngoSelectionService");
+const { assignVolunteers } = require("../services/volunteerAssignmentService");
+const { sendEmergencySMS } = require("../services/smsService");
+const offlineQueue = require("../utils/offlineQueue");
 
 /**
  * Core pipeline: save → cluster → prioritize → assign NGO → assign volunteers
@@ -29,9 +32,9 @@ const processPipeline = async (requestDoc, io) => {
     cluster.priority_score = calculateClusterPriority(cluster);
     await cluster.save();
 
-    // Step 4: Notify NGO dashboard via Socket.io
+    // Step 4: Notify NGO dashboard via Socket.io (Global Broadcast)
     if (io) {
-      io.emit('new_cluster', {
+      io.emit("new_cluster", {
         cluster_id: cluster._id,
         need_type: cluster.need_type,
         location: cluster.location,
@@ -41,35 +44,9 @@ const processPipeline = async (requestDoc, io) => {
       });
     }
 
-    // Step 5: Select best NGO
-    const { primary: ngo, backups } = await selectNGO(cluster);
-    if (!ngo) return cluster;
-
-    // Step 6: Create assignment
-    const assignment = await Assignment.create({
-      cluster_id: cluster._id,
-      ngo_id: ngo._id,
-      backup_ngo_ids: backups.map((b) => b._id),
-      status: 'Pending',
-    });
-
-    cluster.status = 'Assigned';
-    await cluster.save();
-
-    // Step 7: Auto-assign volunteers (no NGO approval needed)
-    await assignVolunteers(assignment, cluster, io);
-
-    // Notify NGO room
-    if (io) {
-      io.to(`ngo_${ngo._id}`).emit('new_assignment', {
-        assignment_id: assignment._id,
-        cluster_id: cluster._id,
-        need_type: cluster.need_type,
-        location: cluster.location,
-        total_people: cluster.total_people,
-        priority_score: cluster.priority_score,
-      });
-    }
+    // Step 5: Stop here. Do NOT auto-assign. 
+    // The cluster remains "Open" and will be claimed manually by an NGO from the Shared Pool.
+    console.log(`📍 Cluster ${cluster._id} mapped to Shared Pool. Waiting for NGO claim.`);
 
     return cluster;
   } catch (err) {
@@ -84,32 +61,38 @@ const processPipeline = async (requestDoc, io) => {
  *   API → SMS → Offline Queue
  */
 const createRequest = async (req, res, next) => {
-  const io = req.app.get('io');
+  const io = req.app.get("io");
 
   try {
     const {
-      need_type, people_count, severity, description,
-      location, is_sos, submitter_name, submitter_phone,
+      need_type,
+      people_count,
+      severity,
+      description,
+      location,
+      is_sos,
+      submitter_name,
+      submitter_phone,
     } = req.body;
 
     // Validate required fields
     if (!need_type || !location?.lat || !location?.lng) {
       return res.status(400).json({
         success: false,
-        message: 'need_type and location (lat, lng) are required',
+        message: "need_type and location (lat, lng) are required",
       });
     }
 
     // Save request to DB
     const requestDoc = await Request.create({
       user_id: req.user?._id || null,
-      submitter_name: submitter_name || req.user?.name || 'Anonymous',
+      submitter_name: submitter_name || req.user?.name || "Anonymous",
       submitter_phone: submitter_phone || req.user?.phone,
       location,
       need_type,
       people_count: people_count || 1,
-      severity: severity || (is_sos ? 'High' : 'Medium'),
-      description: description || '',
+      severity: severity || (is_sos ? "High" : "Medium"),
+      description: description || "",
       is_sos: is_sos || false,
     });
 
@@ -118,18 +101,18 @@ const createRequest = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Request submitted and processing pipeline started',
+      message: "Request submitted and processing pipeline started",
       request_id: requestDoc._id,
       cluster_id: cluster._id,
     });
   } catch (err) {
     // FALLBACK 1: Try SMS
-    console.warn('⚠️  API pipeline failed. Attempting SMS fallback...');
+    console.warn("⚠️  API pipeline failed. Attempting SMS fallback...");
     const requestData = req.body;
 
     try {
       // Find nearest NGO phone for SMS
-      const NGO = require('../models/NGO');
+      const NGO = require("../models/NGO");
       const ngos = await NGO.find({ isActive: true }).limit(3);
       let smsSent = false;
 
@@ -141,8 +124,8 @@ const createRequest = async (req, res, next) => {
       if (smsSent) {
         return res.status(202).json({
           success: true,
-          fallback: 'sms',
-          message: 'API failed. Emergency SMS sent to NGO.',
+          fallback: "sms",
+          message: "API failed. Emergency SMS sent to NGO.",
         });
       }
     } catch (smsErr) {
@@ -153,9 +136,10 @@ const createRequest = async (req, res, next) => {
     const queued = offlineQueue.enqueue(requestData);
     return res.status(202).json({
       success: true,
-      fallback: 'offline_queue',
+      fallback: "offline_queue",
       queue_id: queued.id,
-      message: 'API and SMS failed. Request queued for when connectivity restores.',
+      message:
+        "API and SMS failed. Request queued for when connectivity restores.",
     });
   }
 };
@@ -175,8 +159,8 @@ const getRequests = async (req, res, next) => {
       .sort({ priority_score: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))
-      .populate('user_id', 'name phone')
-      .populate('cluster_id', 'status total_people');
+      .populate("user_id", "name phone")
+      .populate("cluster_id", "status total_people");
 
     const total = await Request.countDocuments(filter);
 
@@ -192,10 +176,13 @@ const getRequests = async (req, res, next) => {
  */
 const getClusters = async (req, res, next) => {
   try {
-    const { status = 'Open' } = req.query;
+    const { status = "Open" } = req.query;
     const clusters = await Cluster.find({ status })
       .sort({ priority_score: -1 })
-      .populate({ path: 'request_ids', select: 'need_type severity people_count' });
+      .populate({
+        path: "request_ids",
+        select: "need_type severity people_count",
+      });
 
     res.json({ success: true, data: clusters });
   } catch (err) {
@@ -215,4 +202,10 @@ const getOfflineQueue = async (req, res) => {
   });
 };
 
-module.exports = { createRequest, getRequests, getClusters, getOfflineQueue, processPipeline };
+module.exports = {
+  createRequest,
+  getRequests,
+  getClusters,
+  getOfflineQueue,
+  processPipeline,
+};

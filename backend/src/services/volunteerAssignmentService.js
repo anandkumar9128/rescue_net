@@ -1,65 +1,87 @@
 /**
- * Volunteer Assignment Service
+ * Dispatch Service (Automated Team Formation)
  *
- * Auto-assigns volunteers to accepted clusters WITHOUT manual NGO approval.
- *
- * Flow:
- *  1. Find available volunteers with matching skill under the NGO
- *  2. Send task to top 3 volunteers simultaneously
- *  3. First to ACCEPT wins — others are auto-released
- *  4. If no response within timeout → retry or escalate
+ * Replaces old single-volunteer assignment with dynamic team formation.
+ * 
+ * Includes:
+ * - getRequiredVolunteers: Rule engine
+ * - autoDispatch: Broadcasts to N volunteers
+ * - acceptTask: Handles first-K acceptances
  */
 const Volunteer = require('../models/Volunteer');
 const Assignment = require('../models/Assignment');
 const { haversineMetres } = require('./clusteringService');
 const { sendVolunteerNotification } = require('./smsService');
 
-// Default timeout before retrying (2 minutes)
 const VOLUNTEER_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
- * Find and assign best volunteers to an assignment.
- *
- * @param {Object} assignment - Assignment document
- * @param {Object} cluster    - Cluster document
- * @param {Object} io         - Socket.io instance for real-time notifications
+ * 1. Team Requirement Engine
+ * Calculates how many volunteers are needed based on type and people count.
  */
-const assignVolunteers = async (assignment, cluster, io) => {
+const getRequiredVolunteers = (need_type, people_count = 1) => {
+  switch (need_type) {
+    case 'Medical': return 1; // 1 doctor max per cluster usually needed for triage
+    case 'Rescue': return Math.ceil(people_count / 3) + 1; // 1 leader + 1 per 3 people
+    case 'Food': return Math.ceil(people_count / 10); // 1 per 10 people
+    case 'Shelter': return Math.ceil(people_count / 5);
+    default: return 1;
+  }
+};
+
+/**
+ * 2. Auto-dispatch (Broadcast to volunteers)
+ */
+const autoDispatch = async (assignment, cluster, io) => {
   try {
-    // Get available volunteers for this NGO with matching skill
+    // If not calculated yet
+    if (!assignment.required_volunteers) {
+      assignment.required_volunteers = getRequiredVolunteers(cluster.need_type, cluster.total_people);
+    }
+
+    const needed = assignment.required_volunteers - assignment.volunteers.filter(v => v.status === 'Accepted').length;
+    if (needed <= 0) return true; // Already full
+
+    // Find available volunteers not already in this assignment
+    const alreadyNotified = assignment.volunteers.map(v => v.volunteer_id.toString());
+    
+    // Convert current target NGO to string representation safely
+    const targetNgoId = (assignment.ngo_id || '').toString();
+
     const volunteers = await Volunteer.find({
-      ngo_id: assignment.ngo_id,
+      ngo_id: targetNgoId,
       status: 'Available',
       skill_type: { $in: [cluster.need_type, 'General'] },
+      _id: { $nin: alreadyNotified }
     });
 
     if (volunteers.length === 0) {
-      console.warn(`⚠️  No available volunteers under NGO ${assignment.ngo_id}`);
-      return;
+      console.warn(`⚠️ No more available volunteers for NGO ${targetNgoId}`);
+      return false; // Tells the caller we need fallback
     }
 
-    // Sort volunteers by proximity to cluster (closest first)
+    // Sort by proximity
     const sorted = volunteers
       .filter((v) => v.location && v.location.lat)
       .map((v) => ({
         volunteer: v,
-        dist: haversineMetres(
-          cluster.location.lat,
-          cluster.location.lng,
-          v.location.lat,
-          v.location.lng
-        ),
+        dist: haversineMetres(cluster.location.lat, cluster.location.lng, v.location.lat, v.location.lng),
       }))
       .sort((a, b) => a.dist - b.dist);
 
-    // If no location data, fall back to all volunteers
-    const candidates =
-      sorted.length > 0
-        ? sorted.slice(0, 3).map((s) => s.volunteer)
-        : volunteers.slice(0, 3);
+    const candidates = sorted.length > 0 ? sorted.map(s => s.volunteer) : volunteers;
+    
+    // Broadcast to top N available
+    // For every 1 needed, let's ask 2. Max 6 at a time to prevent spam.
+    const toNotifyCount = Math.min(needed * 2, 6);
+    const batch = candidates.slice(0, toNotifyCount);
 
-    // Notify top candidates via Socket.io
-    for (const vol of candidates) {
+    for (const vol of batch) {
+      assignment.volunteers.push({
+        volunteer_id: vol._id,
+        status: 'Notified'
+      });
+
       if (io) {
         io.to(`volunteer_${vol._id}`).emit('task_offer', {
           assignment_id: assignment._id,
@@ -69,10 +91,10 @@ const assignVolunteers = async (assignment, cluster, io) => {
           total_people: cluster.total_people,
           max_severity: cluster.max_severity,
           timeout_ms: VOLUNTEER_TIMEOUT_MS,
+          required_volunteers: assignment.required_volunteers
         });
       }
 
-      // SMS fallback notification (includes location + Maps link)
       await sendVolunteerNotification(vol, {
         need_type: cluster.need_type,
         assignment_id: assignment._id,
@@ -80,88 +102,78 @@ const assignVolunteers = async (assignment, cluster, io) => {
       });
     }
 
-    // Store notification timestamp for timeout tracking
     assignment.volunteer_notified_at = new Date();
     assignment.volunteer_timeout_ms = VOLUNTEER_TIMEOUT_MS;
     await assignment.save();
 
-    console.log(`📣 Task offered to ${candidates.length} volunteers for assignment ${assignment._id}`);
-
-    // Set timeout — if no one accepts, escalate
-    setTimeout(async () => {
-      const fresh = await Assignment.findById(assignment._id);
-      if (fresh && fresh.status === 'Pending') {
-        console.warn(`⏰ Volunteer timeout for assignment ${assignment._id}. Retrying...`);
-        // Re-call this function (retry once with remaining volunteers)
-        const nextBatch = volunteers.slice(3, 6);
-        if (nextBatch.length > 0) {
-          for (const vol of nextBatch) {
-            if (io) {
-              io.to(`volunteer_${vol._id}`).emit('task_offer', {
-                assignment_id: assignment._id,
-                cluster_id: cluster._id,
-                need_type: cluster.need_type,
-                location: cluster.location,
-                total_people: cluster.total_people,
-                max_severity: cluster.max_severity,
-                timeout_ms: VOLUNTEER_TIMEOUT_MS,
-              });
-            }
-          }
-        } else {
-          // Mark assignment as needing manual intervention
-          fresh.status = 'Cancelled';
-          await fresh.save();
-          if (io) {
-            io.to(`ngo_${assignment.ngo_id}`).emit('assignment_timeout', {
-              assignment_id: assignment._id,
-              message: 'No volunteer accepted. Manual assignment required.',
-            });
-          }
-        }
-      }
-    }, VOLUNTEER_TIMEOUT_MS);
+    console.log(`📣 Task offered to ${batch.length} volunteers for team of ${needed}`);
+    return true;
   } catch (err) {
-    console.error(`❌ Volunteer assignment error: ${err.message}`);
+    console.error(`❌ Dispatch error: ${err.message}`);
+    return false;
   }
 };
 
 /**
- * Handle a volunteer accepting a task
- *
- * @param {string} assignmentId  - Assignment ID
- * @param {string} volunteerId   - Volunteer ID accepting the task
- * @param {Object} io            - Socket.io instance
+ * 3. Handle a volunteer accepting a task
  */
 const acceptTask = async (assignmentId, volunteerId, io) => {
   const assignment = await Assignment.findById(assignmentId).populate('cluster_id');
 
-  if (!assignment || assignment.status !== 'Pending') {
-    return { success: false, message: 'Assignment no longer available' };
+  if (!assignment) return { success: false, message: 'Assignment not found' };
+  
+  if (assignment.status !== 'Pending') {
+    return { success: false, message: 'Team is already full or task canceled' };
   }
 
-  // Assign the volunteer
-  assignment.volunteer_id = volunteerId;
-  assignment.status = 'Volunteer Assigned';
-  await assignment.save();
+  // Find volunteer in array
+  const volEntry = assignment.volunteers.find(v => v.volunteer_id.toString() === volunteerId.toString());
+  if (!volEntry) {
+    return { success: false, message: 'You were not notified for this task' };
+  }
+  
+  if (volEntry.status === 'Accepted') return { success: true, assignment };
 
-  // Update volunteer status
+  const acceptedCount = assignment.volunteers.filter(v => v.status === 'Accepted').length;
+  if (acceptedCount >= assignment.required_volunteers) {
+    return { success: false, message: 'Team is already full' };
+  }
+
+  // Accept them
+  volEntry.status = 'Accepted';
+  volEntry.responded_at = new Date();
+
+  // Legacy compatibility: Keep first accepted as volunteer_id
+  if (!assignment.volunteer_id) {
+    assignment.volunteer_id = volunteerId;
+  }
+
+  // Check if team is full
+  const newAcceptedCount = assignment.volunteers.filter(v => v.status === 'Accepted').length;
+  if (newAcceptedCount >= assignment.required_volunteers) {
+    assignment.status = 'Volunteer Assigned';
+  }
+
+  await assignment.save();
   await Volunteer.findByIdAndUpdate(volunteerId, { status: 'En Route' });
 
-  // Notify the NGO dashboard
+  // Notify the primary NGO dashboard
   if (io) {
     io.to(`ngo_${assignment.ngo_id}`).emit('volunteer_accepted', {
       assignment_id: assignmentId,
       volunteer_id: volunteerId,
-      status: 'Volunteer Assigned',
+      status: assignment.status,
+      team_full: newAcceptedCount >= assignment.required_volunteers
     });
 
-    // Notify other volunteers that task is taken
-    io.to(`ngo_${assignment.ngo_id}`).emit('task_taken', { assignment_id: assignmentId });
+    if (newAcceptedCount >= assignment.required_volunteers) {
+      io.to(`ngo_${assignment.ngo_id}`).emit('task_taken', { assignment_id: assignmentId });
+    }
   }
 
-  console.log(`✅ Volunteer ${volunteerId} accepted assignment ${assignmentId}`);
+  console.log(`✅ Volunteer ${volunteerId} joined team ${assignmentId}`);
   return { success: true, assignment };
 };
 
-module.exports = { assignVolunteers, acceptTask };
+// Map old assignVolunteers export to new autoDispatch to prevent breaking existing imports
+module.exports = { getRequiredVolunteers, autoDispatch, assignVolunteers: autoDispatch, acceptTask };
