@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import socket from '../services/socket'
 import TrackingMap from '../components/TrackingMap'
+import NgoMap from '../components/NgoMap'
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -399,6 +400,20 @@ export default function NGODashboard() {
     }
   }
 
+  // ── Dispatch Team from Map ────────────────────────────────────────────────────
+  const handleMapAssign = async (clusterId) => {
+    try {
+      await api.post("/requests/assign", { cluster_id: clusterId })
+      const id = Date.now()
+      setAlerts((prev) => [{ id, msg: "🚁 Tracking established. Autonomous dispatcher searching for volunteer...", type: 'new' }, ...prev.slice(0, 4)])
+      loadDashboard()
+    } catch (err) {
+      console.error('Dispatch failed:', err)
+      const id = Date.now()
+      setAlerts((prev) => [{ id, msg: "Failed to dispatch. Ensure radius contains active volunteers.", type: 'warning' }, ...prev.slice(0, 4)])
+    }
+  }
+
   // ── Respond to join request ───────────────────────────────────────────────────
   const handleJoinResponse = async (requestId, action) => {
     setRespondingId(requestId)
@@ -415,6 +430,7 @@ export default function NGODashboard() {
   // ── Computed stats ────────────────────────────────────────────────────────────
   const pendingJoins = joinRequests.filter(r => r.status === 'pending').length
   const openClusters = data.clusters.filter(c => c.status === 'Open');
+  const allActiveClusters = data.clusters.filter(c => ['Open', 'Assigned', 'In Progress'].includes(c.status));
 
   const stats = {
     active:        data.assignments.filter(a => !['Completed', 'Cancelled'].includes(a.status)).length,
@@ -520,7 +536,18 @@ export default function NGODashboard() {
           <>
             {/* Overview */}
             {tab === 'overview' && (
-              <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* 🗺 Hotspot Map Block */}
+                <div className="glass-card mb-6 p-4 md:p-6 bg-slate-900/50">
+                   <h3 className="font-display font-bold text-white mb-4 flex items-center justify-between">
+                     <span>🗺 Live Hotspot Directory</span>
+                     <span className="text-xs text-slate-500 font-normal">Auto-Updates via Socket.io</span>
+                   </h3>
+                   <NgoMap clusters={allActiveClusters} onAssign={handleMapAssign} />
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-6">
                 
                 {/* SHARED POOL (Open Requests) */}
                 <div className="glass-card p-6 lg:col-span-1 border border-brand-500/20 bg-brand-950/10">
@@ -568,6 +595,7 @@ export default function NGODashboard() {
                       {data.volunteers.length === 0 && <div className="text-slate-500 text-sm">No volunteers registered</div>}
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
             )}

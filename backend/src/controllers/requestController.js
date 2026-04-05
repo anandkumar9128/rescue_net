@@ -206,10 +206,32 @@ const getOfflineQueue = async (req, res) => {
   });
 };
 
+/**
+ * POST /api/requests/assign
+ * Manually trigger the automated dispatch system for a specific cluster (used by the NGO Map)
+ */
+const triggerDispatch = async (req, res, next) => {
+  try {
+    const { cluster_id } = req.body;
+    const cluster = await Cluster.findById(cluster_id);
+    if (!cluster) {
+      return res.status(404).json({ success: false, message: "Cluster not found" });
+    }
+
+    const io = req.app.get("io");
+    await dispatchRequest(cluster, io);
+
+    res.json({ success: true, message: "Team dispatch protocol activated!" });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   createRequest,
   getRequests,
   getClusters,
   getOfflineQueue,
   processPipeline,
+  triggerDispatch,
 };
