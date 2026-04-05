@@ -10,29 +10,51 @@ const handleSmsWebhook = async (req, res) => {
   const io = req.app.get('io');
   
   try {
-    // SMS Forwarder apps use various formats. Flexible extraction of generic fields:
-    const Body = req.body.message || req.body.content || req.body.Body || req.body.text || req.body;
-    const From = req.body.sender || req.body.from || req.body.From || 'Unknown';
+    // ===== VERBOSE DEBUG LOGGING =====
+    console.log('📩 RAW HEADERS:', JSON.stringify(req.headers));
+    console.log('📩 RAW BODY:', JSON.stringify(req.body));
+    console.log('📩 BODY TYPE:', typeof req.body);
+    console.log('📩 BODY KEYS:', Object.keys(req.body || {}));
 
-    // 1. Log incoming SMS
-    console.log(`📩 Incoming Webhook from ${From}:`, JSON.stringify(req.body));
+    // SMS Forwarder apps use various formats. Flexible extraction of generic fields:
+    const Body = req.body.message || req.body.content || req.body.Body || req.body.text 
+                 || req.body.sms || req.body.body || req.body.msg || req.body.data;
+    const From = req.body.sender || req.body.from || req.body.From 
+                 || req.body.phone || req.body.number || 'Unknown';
+
+    console.log(`📩 Extracted Body: "${Body}" (type: ${typeof Body})`);
+    console.log(`📩 Extracted From: "${From}"`);
 
     if (!Body || typeof Body !== 'string') {
       console.error('❌ Invalid payload (missing or invalid Body)');
-      return res.status(400).json({ success: false, message: 'Bad Request: Missing message body' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Bad Request: Missing message body',
+        debug_received_keys: Object.keys(req.body || {}),
+        debug_received_body: req.body
+      });
     }
 
     // 2. Parse the SMS format (SOS|TYPE|LAT|LNG|SEVERITY)
-    // Accept optional SOS| prefix, but fallback
+    // Accept optional SOS| prefix
     let messageText = Body.trim();
     if (messageText.toUpperCase().startsWith('SOS|')) {
       messageText = messageText.substring(4);
     }
     
+    console.log(`📩 MessageText after prefix strip: "${messageText}"`);
+    console.log(`📩 Parts:`, messageText.split('|'));
+
     // Now expect TYPE|LAT|LNG|SEVERITY
     const parts = messageText.split('|');
     if (parts.length < 4) {
-      return res.status(400).json({ success: false, message: 'Invalid format. Use SOS|TYPE|LAT|LNG|SEVERITY' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid format. Use SOS|TYPE|LAT|LNG|SEVERITY',
+        debug_received_text: messageText,
+        debug_parts_found: parts,
+        debug_parts_count: parts.length
+      });
     }
 
     const [rawType, rawLat, rawLng, rawSeverity] = parts;
