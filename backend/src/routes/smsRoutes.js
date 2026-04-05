@@ -4,14 +4,16 @@ const { handleSmsWebhook } = require('../controllers/smsController');
 
 /**
  * @route   POST /api/sms-webhook
- * @desc    Twilio SMS Webhook to create an SOS request
- * @access  Public (called by Twilio)
+ * @desc    Android SMS Forwarder Webhook to create an SOS request
+ * @access  Public (called directly by Android app)
  * 
- * --- TWILIO CONFIG INSTRUCTIONS ---
- * 1. Use ngrok to expose local server: `ngrok http 5000`
- * 2. Set webhook URL in Twilio console -> Phone Numbers -> Active Numbers -> "A MESSAGE COMES IN":
- *    https://<ngrok-url>/api/sms-webhook
+ * --- ANDROID APP CONFIG INSTRUCTIONS ---
+ * 1. Use ngrok or cloud URL (e.g. `https://your-domain.com`) in the Forwarder App
+ * 2. Set webhook URL in App to:
+ *    https://<domain>/api/sms-webhook
  * 3. HTTP method: POST
+ * 4. Content-Type: application/json
+ * 5. Format: { "message": "TYPE|LAT|LNG|SEV", "sender": "+91..." }
  */
 router.post('/', handleSmsWebhook);
 
