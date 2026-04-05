@@ -13,13 +13,17 @@ const handleSmsWebhook = async (req, res) => {
     // ===== VERBOSE DEBUG LOGGING =====
     console.log('📩 RAW HEADERS:', JSON.stringify(req.headers));
     console.log('📩 RAW BODY:', JSON.stringify(req.body));
-    console.log('📩 BODY TYPE:', typeof req.body);
+    console.log('📩 RAW QUERY:', JSON.stringify(req.query));
     console.log('📩 BODY KEYS:', Object.keys(req.body || {}));
 
-    // SMS Forwarder apps use various formats. Flexible extraction of generic fields:
-    const Body = req.body.message || req.body.content || req.body.Body || req.body.text 
+    // Try URL query params FIRST (many SMS forwarder apps substitute variables in URL only)
+    // Then fall back to JSON body fields
+    const Body = req.query.message || req.query.msg || req.query.body || req.query.text
+                 || req.body.message || req.body.content || req.body.Body || req.body.text 
                  || req.body.sms || req.body.body || req.body.msg || req.body.data;
-    const From = req.body.sender || req.body.from || req.body.From 
+
+    const From = req.query.sender || req.query.from || req.query.phone
+                 || req.body.sender || req.body.from || req.body.From 
                  || req.body.phone || req.body.number || 'Unknown';
 
     console.log(`📩 Extracted Body: "${Body}" (type: ${typeof Body})`);
@@ -31,6 +35,7 @@ const handleSmsWebhook = async (req, res) => {
         success: false, 
         message: 'Bad Request: Missing message body',
         debug_received_keys: Object.keys(req.body || {}),
+        debug_query_keys: Object.keys(req.query || {}),
         debug_received_body: req.body
       });
     }
