@@ -94,26 +94,29 @@ const dispatchRequest = async (cluster, io, stepIndex = 0) => {
   // 1. Fetch nearby NGOs mathematically sorted by distance
   const nearbyNGOs = await findNearbyNGOs(cluster.location, radius);
 
-  // 2. Evaluate each nearby NGO and just grab the first one with ANY available manpower
+  // 2. Evaluate each nearby NGO — assign up to 3 volunteers simultaneously
+  const TEAM_SIZE = 3;
+
   for (const ngo of nearbyNGOs) {
     const availableVols = await Volunteer.find({ ngo_id: ngo._id, status: 'Available' });
     
-    // If this NGO has ANY available volunteer, just select the first one and instantly assign
+    // If this NGO has at least 1 available volunteer, grab up to 3
     if (availableVols.length > 0) {
-      console.log(`✅ MATCH FOUND: NGO ${ngo.name} at radius ${radius}m`);
-      
-      const selectedVol = availableVols[0]; // Just select one volunteer
+      const selectedVols = availableVols.slice(0, TEAM_SIZE); // Pick up to 3
+      console.log(`✅ MATCH FOUND: NGO ${ngo.name} at radius ${radius}m — assigning ${selectedVols.length} volunteer(s)`);
 
-      // Create Assignment
+      const volunteersArray = selectedVols.map(v => ({
+        volunteer_id: v._id,
+        status: "Accepted"
+      }));
+
+      // Create Assignment with full team
       const assignment = await Assignment.create({
         cluster_id: cluster._id,
         ngo_id: ngo._id,
-        volunteer_id: selectedVol._id,
-        volunteers: [{
-          volunteer_id: selectedVol._id,
-          status: "Accepted" 
-        }],
-        required_volunteers: 1,
+        volunteer_id: selectedVols[0]._id, // Lead volunteer for legacy compat
+        volunteers: volunteersArray,
+        required_volunteers: TEAM_SIZE,
         status: "Volunteer Assigned" 
       });
 
@@ -121,13 +124,19 @@ const dispatchRequest = async (cluster, io, stepIndex = 0) => {
       cluster.status = "Assigned";
       await cluster.save();
 
-      // Mark volunteer
-      await Volunteer.findByIdAndUpdate(selectedVol._id, { status: "En Route" });
+      // Mark ALL selected volunteers as En Route
+      const volIds = selectedVols.map(v => v._id);
+      await Volunteer.updateMany(
+        { _id: { $in: volIds } },
+        { $set: { status: "En Route" } }
+      );
 
-      // Socket emits
+      // Socket emits — notify each volunteer individually + NGO
       if (io) {
         io.to(`ngo_${ngo._id}`).emit('assignment-created', { assignment_id: assignment._id, cluster_id: cluster._id });
-        io.to(`volunteer_${selectedVol._id}`).emit('task_assigned', { assignment_id: assignment._id });
+        for (const vol of selectedVols) {
+          io.to(`volunteer_${vol._id}`).emit('task_assigned', { assignment_id: assignment._id });
+        }
         io.emit("cluster_claimed", { cluster_id: cluster._id, ngo_id: ngo._id });
         io.emit("assignment_status_update", { assignment_id: assignment._id, status: "Volunteer Assigned" });
       }
