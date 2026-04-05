@@ -168,6 +168,7 @@ export default function NGODashboard() {
   const [respondingId, setRespondingId] = useState(null) // request ID being approved/rejected
 
   const ngoId = user?.ngo_id
+  const [newClusterCount, setNewClusterCount] = useState(0)
 
   // ── Load dashboard data ──────────────────────────────────────────────────────
   const loadDashboard = useCallback(async () => {
@@ -204,6 +205,7 @@ export default function NGODashboard() {
     })
     socket.on('new_cluster', (data) => {
       addAlert(`📍 New cluster: ${data.need_type} (${data.total_people} people)`, 'new')
+      setNewClusterCount((n) => n + 1)  // ← increment notification badge
       loadDashboard()
     })
     socket.on('volunteer_accepted',        () => { loadDashboard() })
@@ -272,8 +274,8 @@ export default function NGODashboard() {
     { id: 'overview',      label: '📊 Overview' },
     { id: 'assignments',   label: '📋 Assignments' },
     { id: 'volunteers',    label: '🙋 Volunteers' },
-    { id: 'join_requests', label: '🔔 Join Requests', badge: pendingJoins },
-    { id: 'clusters',      label: '🗺 Clusters' },
+    { id: 'join_requests', label: '🔔 Join Requests', badge: pendingJoins, badgeColor: 'bg-brand-500' },
+    { id: 'clusters',      label: '🗺 Clusters',      badge: newClusterCount, badgeColor: 'bg-red-500', pulse: true },
   ]
 
   return (
@@ -332,11 +334,16 @@ export default function NGODashboard() {
         {/* ── Tabs ── */}
         <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => {
+                setTab(t.id)
+                if (t.id === 'clusters') setNewClusterCount(0)  // clear badge on open
+              }}
               className={`nav-item whitespace-nowrap relative ${tab === t.id ? 'active' : ''}`}>
               {t.label}
               {t.badge > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold">
+                <span className={`ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full ${
+                  t.badgeColor || 'bg-brand-500'
+                } text-white text-[10px] font-bold ${t.pulse ? 'animate-pulse' : ''}`}>
                   {t.badge}
                 </span>
               )}

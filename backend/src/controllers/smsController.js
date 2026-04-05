@@ -1,6 +1,18 @@
 const Request = require('../models/Request');
 const { processPipeline } = require('./requestController');
 
+// Trusted SIM numbers that are allowed to trigger the SOS webhook.
+// Add your registered RescueNet SIM number here.
+// You can also set TRUSTED_SIMS as a comma-separated env variable.
+const TRUSTED_SIMS = (process.env.TRUSTED_SIMS || '9128171568,+919128171568,917488824315,+917488824315')
+  .split(',').map(n => n.trim().replace(/\D/g, ''));
+
+const isTrustedSender = (from) => {
+  if (!from || from === 'Unknown') return true; // allow if sender unknown (old behavior)
+  const digits = from.replace(/\D/g, ''); // strip non-digits
+  return TRUSTED_SIMS.some(trusted => digits.endsWith(trusted) || trusted.endsWith(digits));
+};
+
 /**
  * Handle incoming SMS from Generic Android webhook
  * POST /api/sms-webhook
@@ -10,13 +22,7 @@ const handleSmsWebhook = async (req, res) => {
   const io = req.app.get('io');
   
   try {
-    // ===== VERBOSE DEBUG LOGGING =====
-    console.log('📩 RAW HEADERS:', JSON.stringify(req.headers));
-    console.log('📩 RAW BODY:', JSON.stringify(req.body));
-    console.log('📩 RAW QUERY:', JSON.stringify(req.query));
-    console.log('📩 BODY KEYS:', Object.keys(req.body || {}));
-
-    // Try URL query params FIRST (many SMS forwarder apps substitute variables in URL only)
+    // Try URL query params FIRST (SMS forwarder apps substitute variables in URL)
     // Then fall back to JSON body fields
     const Body = req.query.message || req.query.msg || req.query.body || req.query.text
                  || req.body.message || req.body.content || req.body.Body || req.body.text 
@@ -26,18 +32,17 @@ const handleSmsWebhook = async (req, res) => {
                  || req.body.sender || req.body.from || req.body.From 
                  || req.body.phone || req.body.number || 'Unknown';
 
-    console.log(`📩 Extracted Body: "${Body}" (type: ${typeof Body})`);
-    console.log(`📩 Extracted From: "${From}"`);
+    console.log(`📩 SMS Webhook — From: "${From}" | Body: "${Body}"`);
+
+    // 🔒 SIM Whitelist: Only accept SMS from trusted registered SIM
+    if (!isTrustedSender(From)) {
+      console.warn(`⛔ Rejected SMS from untrusted sender: ${From}`);
+      return res.status(403).json({ success: false, message: 'Forbidden: Untrusted sender' });
+    }
 
     if (!Body || typeof Body !== 'string') {
       console.error('❌ Invalid payload (missing or invalid Body)');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Bad Request: Missing message body',
-        debug_received_keys: Object.keys(req.body || {}),
-        debug_query_keys: Object.keys(req.query || {}),
-        debug_received_body: req.body
-      });
+      return res.status(400).json({ success: false, message: 'Bad Request: Missing message body' });
     }
 
     // 2. Parse the SMS format (SOS|TYPE|LAT|LNG|SEVERITY)
@@ -72,15 +77,16 @@ const handleSmsWebhook = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid coordinates. Ensure LAT and LNG are numbers.' });
     }
 
-    // Map need type
+    // Map need type — S=Shelter added
     const typeMap = {
       M: 'Medical',
       F: 'Food',
       R: 'Rescue',
+      S: 'Shelter',
     };
     const need_type = typeMap[rawType.toUpperCase()];
     if (!need_type) {
-      return res.status(400).json({ success: false, message: 'Invalid TYPE. Use M, F, or R.' });
+      return res.status(400).json({ success: false, message: 'Invalid TYPE. Use M (Medical), F (Food), R (Rescue), S (Shelter).' });
     }
 
     // Map severity
@@ -89,16 +95,18 @@ const handleSmsWebhook = async (req, res) => {
     if (sevUpper.includes('HIGH')) severity = 'High';
     if (sevUpper.includes('LOW')) severity = 'Low';
 
-    // 3. Deduplication Check (Same phone, recent time)
+    // 3. Deduplication Check — same phone + SAME need_type within 15 minutes
+    // Different need types (e.g. Medical then Food) are allowed and create separate clusters
     const recentTimeLimit = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes
     const duplicate = await Request.findOne({
       submitter_phone: From,
+      need_type,           // ← only block same TYPE from same number
       createdAt: { $gte: recentTimeLimit },
     });
 
     if (duplicate) {
-      console.log(`⚠️ Duplicate request blocked from ${From}`);
-      return res.status(200).json({ success: true, message: 'Request already registered for your location.' });
+      console.log(`⚠️ Duplicate ${need_type} request blocked from ${From}`);
+      return res.status(200).json({ success: true, message: `Your ${need_type} request was already registered. Help is coming!` });
     }
 
     // 4. Map Data and Create Request
