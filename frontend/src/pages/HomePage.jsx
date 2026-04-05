@@ -43,8 +43,9 @@ export default function HomePage() {
       console.warn('Geolocation failed for SMS fallback')
     }
     const message = `R|${lat}|${lng}|HIGH`
-    const twilioNumber = import.meta.env.VITE_TWILIO_PHONE_NUMBER || '+16415416167' // Automatically uses your .env
-    window.location.href = `sms:${twilioNumber}?body=${encodeURIComponent(message)}`
+    // Use the custom Android Hub phone number instead of Twilio
+    const forwarderNumber = import.meta.env.VITE_FORWARDER_PHONE_NUMBER || '+917488824315' 
+    window.location.href = `sms:${forwarderNumber}?body=${encodeURIComponent(message)}`
   }, [])
 
   // ── SOS Handler ─────────────────────────────────────────────────────────────
