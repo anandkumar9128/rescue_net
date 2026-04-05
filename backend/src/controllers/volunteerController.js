@@ -178,6 +178,44 @@ const updateAssignmentStatus = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/**
+ * PATCH /api/volunteers/me/location
+ * Volunteer pushes their current GPS coordinates.
+ * Broadcast globally so NGO & requester dashboards all receive it.
+ */
+const updateMyLocation = async (req, res, next) => {
+  try {
+    const { lat, lng, assignment_id } = req.body;
+    if (lat == null || lng == null) {
+      return res.status(400).json({ success: false, message: 'lat and lng are required' });
+    }
+
+    const volunteer = await Volunteer.findOneAndUpdate(
+      { user_id: req.user._id },
+      { location: { lat, lng }, last_active: new Date() },
+      { new: true }
+    );
+
+    if (!volunteer) {
+      return res.status(404).json({ success: false, message: 'Volunteer not found' });
+    }
+
+    // Broadcast to ALL connected clients (NGO, volunteer, users viewing the request)
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('volunteer_location', {
+        volunteer_id: volunteer._id,
+        volunteer_name: volunteer.name,
+        lat,
+        lng,
+        assignment_id: assignment_id || null,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   getMyProfile,
   getMyTasks,
@@ -187,4 +225,5 @@ module.exports = {
   acceptVolunteerTask,
   rejectVolunteerTask,
   updateAssignmentStatus,
+  updateMyLocation,
 };

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import socket from '../services/socket'
+import TrackingMap from '../components/TrackingMap'
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function VolunteerRow({ vol }) {
 }
 
 // ── Assignment Row ─────────────────────────────────────────────────────────────
-function AssignmentRow({ a, ngoId, onOverride, volunteers }) {
+function AssignmentRow({ a, ngoId, onOverride, volunteers, volunteerPos, onTrack }) {
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [selectedVol, setSelectedVol]   = useState('')
   const [submitting, setSubmitting]      = useState(false)
@@ -97,6 +98,8 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers }) {
   }
 
   const cluster = a.cluster_id
+  const isActive = ['Pending', 'Volunteer Assigned', 'En Route', 'On Task'].includes(a.status)
+  const hasVolunteer = !!a.volunteer_id
   return (
     <div className="glass-card p-4 space-y-3">
       <div className="flex items-start justify-between">
@@ -109,7 +112,22 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers }) {
             👥 {cluster?.total_people || 0} people · {cluster?.location?.address || `${cluster?.location?.lat?.toFixed(3)}, ${cluster?.location?.lng?.toFixed(3)}`}
           </div>
         </div>
-        <span className={STATUS_BADGE[a.status] || 'badge bg-slate-500/15 text-slate-400'}>{a.status}</span>
+        <div className="flex items-center gap-2">
+          {/* Track button — shown when volunteer assigned */}
+          {hasVolunteer && isActive && (
+            <button
+              onClick={() => onTrack(a)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/10 border border-blue-500/40 text-blue-400 hover:bg-blue-500/20 transition-all"
+            >
+              {volunteerPos ? (
+                <><span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" /> Live Track</>
+              ) : (
+                <>🗺 Track Volunteer</>
+              )}
+            </button>
+          )}
+          <span className={STATUS_BADGE[a.status] || 'badge bg-slate-500/15 text-slate-400'}>{a.status}</span>
+        </div>
       </div>
 
       {a.volunteer_id && (
@@ -147,6 +165,37 @@ function AssignmentRow({ a, ngoId, onOverride, volunteers }) {
   )
 }
 
+// ── Tracking Modal ─────────────────────────────────────────────────────────────────────
+function TrackingModal({ assignment, volunteerPos, onClose }) {
+  const cluster = assignment?.cluster_id
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800">
+          <div>
+            <div className="font-display font-bold text-white">
+              {NEED_ICONS[cluster?.need_type]} {cluster?.need_type} — Live Tracking
+            </div>
+            <div className="text-slate-500 text-xs mt-0.5">
+              Volunteer: {assignment?.volunteer_id?.name || 'Assigned'}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors text-xl leading-none">✕</button>
+        </div>
+        <div className="p-4">
+          <TrackingMap
+            volunteerPos={volunteerPos}
+            destinationPos={cluster?.location}
+            volunteerName={assignment?.volunteer_id?.name || 'Volunteer'}
+            destinationLabel={`${cluster?.need_type || ''} Emergency Site`}
+            height="400px"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Skill type columns config ──────────────────────────────────────────────────
 const SKILL_COLS = [
   { key: 'Medical',  icon: '🏥', color: 'border-red-500/30    bg-red-500/5    text-red-400' },
@@ -169,6 +218,8 @@ export default function NGODashboard() {
 
   const ngoId = user?.ngo_id
   const [newClusterCount, setNewClusterCount] = useState(0)
+  const [volunteerPositions, setVolunteerPositions] = useState({}) // { assignment_id: { lat, lng } }
+  const [trackingAssignment, setTrackingAssignment] = useState(null) // assignment being tracked in modal
 
   // ── Load dashboard data ──────────────────────────────────────────────────────
   const loadDashboard = useCallback(async () => {
@@ -191,7 +242,15 @@ export default function NGODashboard() {
 
   // ── Real-time updates ────────────────────────────────────────────────────────
   useEffect(() => {
-    socket.connect()
+    // Ensure socket is connected when dashboard mounts
+    if (!socket.connected) socket.connect()
+
+    // 📍 Real-time volunteer location updates
+    socket.on('volunteer_location', ({ volunteer_id, lat, lng, assignment_id }) => {
+      if (assignment_id) {
+        setVolunteerPositions(prev => ({ ...prev, [assignment_id]: { lat, lng } }))
+      }
+    })
 
     const addAlert = (msg, type = 'info') => {
       const id = Date.now()
@@ -226,6 +285,7 @@ export default function NGODashboard() {
     })
 
     return () => {
+      socket.off('volunteer_location')
       socket.off('new_assignment')
       socket.off('new_cluster')
       socket.off('volunteer_accepted')
@@ -280,6 +340,14 @@ export default function NGODashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      {/* Tracking Modal */}
+      {trackingAssignment && (
+        <TrackingModal
+          assignment={trackingAssignment}
+          volunteerPos={volunteerPositions[trackingAssignment._id]}
+          onClose={() => setTrackingAssignment(null)}
+        />
+      )}
       {/* ── Topbar ── */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-slate-800/50 sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -363,8 +431,14 @@ export default function NGODashboard() {
                   <h3 className="font-display font-bold text-white mb-4">Recent Assignments</h3>
                   <div className="space-y-3">
                     {data.assignments.slice(0, 5).map((a) => (
-                      <AssignmentRow key={a._id} a={a} ngoId={ngoId} onOverride={handleOverride} volunteers={data.volunteers} />
-                    ))}
+                    <AssignmentRow
+                      key={a._id} a={a} ngoId={ngoId}
+                      onOverride={handleOverride}
+                      volunteers={data.volunteers}
+                      volunteerPos={volunteerPositions[a._id]}
+                      onTrack={setTrackingAssignment}
+                    />
+                  ))}
                     {data.assignments.length === 0 && <div className="text-slate-500 text-sm">No assignments yet</div>}
                   </div>
                 </div>
@@ -386,7 +460,13 @@ export default function NGODashboard() {
                   <button onClick={loadDashboard} className="btn-ghost text-xs py-1.5 px-3">↻ Refresh</button>
                 </div>
                 {data.assignments.map((a) => (
-                  <AssignmentRow key={a._id} a={a} ngoId={ngoId} onOverride={handleOverride} volunteers={data.volunteers} />
+                  <AssignmentRow
+                    key={a._id} a={a} ngoId={ngoId}
+                    onOverride={handleOverride}
+                    volunteers={data.volunteers}
+                    volunteerPos={volunteerPositions[a._id]}
+                    onTrack={setTrackingAssignment}
+                  />
                 ))}
                 {data.assignments.length === 0 && (
                   <div className="glass-card p-8 text-center text-slate-500">No assignments yet — waiting for incoming requests</div>

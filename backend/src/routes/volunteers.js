@@ -9,12 +9,14 @@ const {
   acceptVolunteerTask,
   rejectVolunteerTask,
   updateAssignmentStatus,
+  updateMyLocation,
 } = require('../controllers/volunteerController');
 const { protect } = require('../middleware/auth');
 
 // ── /me routes MUST come before /:id to avoid Express matching 'me' as an id ──
 router.get('/me', protect, getMyProfile);
 router.get('/me/tasks', protect, getMyTasks);
+router.patch('/me/location', protect, updateMyLocation);  // 📍 real-time location push
 
 router.get('/', protect, getVolunteers);
 router.get('/:id/tasks', protect, getVolunteerTasks);

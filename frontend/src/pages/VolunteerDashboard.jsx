@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import socket from '../services/socket'
+import TrackingMap from '../components/TrackingMap'
 
 const STATUS_OPTIONS = ['Available', 'En Route', 'On Task', 'Completed', 'Offline']
 
@@ -138,10 +139,14 @@ export default function VolunteerDashboard() {
   const [tasks, setTasks]         = useState([])
   const [myStatus, setMyStatus]   = useState('Available')
   const [volunteerId, setVolId]   = useState(null)
-  const [hasNGO, setHasNGO]       = useState(true)  // assume true until loaded
+  const [hasNGO, setHasNGO]       = useState(true)
   const [offer, setOffer]         = useState(null)
   const [loading, setLoading]     = useState(true)
   const [statusUpdating, setStatusUpdating] = useState(false)
+  const [volunteerPos, setVolunteerPos] = useState(null)   // { lat, lng }
+  const [trackingTaskId, setTrackingTaskId] = useState(null)
+  const watchIdRef = useRef(null)
+  const locationIntervalRef = useRef(null)
 
   // ── Load volunteer data ──────────────────────────────────────────────────────
   const loadMyData = useCallback(async () => {
@@ -232,6 +237,43 @@ export default function VolunteerDashboard() {
       setStatusUpdating(false)
     }
   }
+
+  // ── GPS Tracking ─────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const activeTask = tasks.find(t => ['En Route', 'On Task', 'Volunteer Assigned'].includes(t.status))
+    
+    if (!activeTask || !['En Route', 'On Task'].includes(activeTask.status)) {
+      setTrackingTaskId(null)
+      return
+    }
+    setTrackingTaskId(activeTask._id)
+
+    // Stop any existing watch
+    if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
+    clearInterval(locationIntervalRef.current)
+
+    const sendLocation = (lat, lng) => {
+      setVolunteerPos({ lat, lng })
+      api.patch('/volunteers/me/location', {
+        lat, lng, assignment_id: activeTask._id,
+      }).catch(() => {})
+      socket.emit('volunteer_location', { assignment_id: activeTask._id, lat, lng })
+    }
+
+    // Watch position continuously
+    if (navigator.geolocation) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => sendLocation(pos.coords.latitude, pos.coords.longitude),
+        (err) => console.warn('GPS error:', err),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      )
+    }
+
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
+      clearInterval(locationIntervalRef.current)
+    }
+  }, [tasks])   // re-run when tasks/status changes
 
   // ── Task status update ───────────────────────────────────────────────────────
   const handleTaskStatusUpdate = (taskId, newStatus) => {
@@ -326,9 +368,31 @@ export default function VolunteerDashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {activeTasks.map((t) => (
-                <TaskCard key={t._id} task={t} onStatusUpdate={handleTaskStatusUpdate} />
-              ))}
+              {activeTasks.map((t) => {
+                const isTracking = ['En Route', 'On Task'].includes(t.status)
+                const destination = t.cluster_id?.location
+                return (
+                  <div key={t._id}>
+                    <TaskCard task={t} onStatusUpdate={handleTaskStatusUpdate} />
+                    {/* 🗺 Tracking Map: visible when En Route or On Task */}
+                    {isTracking && destination?.lat && (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                          <span className="text-blue-400 text-xs font-medium">Live Tracking Active</span>
+                        </div>
+                        <TrackingMap
+                          volunteerPos={volunteerPos}
+                          destinationPos={destination}
+                          volunteerName="You"
+                          destinationLabel={`${t.cluster_id?.need_type || ''} Emergency Site`}
+                          height="280px"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
