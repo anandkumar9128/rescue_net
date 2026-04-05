@@ -5,7 +5,15 @@ import socket from '../services/socket'
 const AuthContext = createContext(null)
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser]     = useState(() => JSON.parse(localStorage.getItem('rn_user') || 'null'))
+  const [user, setUser]     = useState(() => {
+    const storedUser = localStorage.getItem('rn_user')
+    if (!storedUser || storedUser === 'undefined') return null
+    try {
+      return JSON.parse(storedUser)
+    } catch (err) {
+      return null
+    }
+  })
   const [loading, setLoading] = useState(false)
 
   // Connect socket and join appropriate room when user logs in
