@@ -8,8 +8,8 @@
  *
  * Uses Haversine formula for distance calculation.
  */
-const Request = require('../models/Request');
-const Cluster = require('../models/Cluster');
+const Request = require("../models/Request");
+const Cluster = require("../models/Cluster");
 
 /**
  * Haversine distance between two lat/lng points, returns metres
@@ -40,13 +40,11 @@ const SEVERITY_ORDER = { Low: 1, Medium: 2, High: 3, Critical: 4 };
  */
 const clusterRequest = async (requestDoc) => {
   const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000);
-  const RADIUS_METRES = 50;
+  const RADIUS_METRES = 100; // Merge requests within 100m of each other
 
-  // Find open clusters of the same type created in the last 10 minutes
+  // Find ANY active cluster near the same location (regardless of need_type or time)
   const candidates = await Cluster.find({
-    need_type: requestDoc.need_type,
-    status: 'Open',
-    createdAt: { $gte: TEN_MINUTES_AGO },
+    status: { $in: ["Open", "Assigned", "In Progress"] },
   });
 
   let targetCluster = null;
@@ -56,7 +54,7 @@ const clusterRequest = async (requestDoc) => {
       requestDoc.location.lat,
       requestDoc.location.lng,
       cluster.location.lat,
-      cluster.location.lng
+      cluster.location.lng,
     );
 
     if (dist <= RADIUS_METRES) {
@@ -79,33 +77,43 @@ const clusterRequest = async (requestDoc) => {
     }
 
     // Recalculate cluster center (average of all request locations)
-    const allRequests = await Request.find({ _id: { $in: targetCluster.request_ids } });
-    const avgLat = allRequests.reduce((sum, r) => sum + r.location.lat, 0) / allRequests.length;
-    const avgLng = allRequests.reduce((sum, r) => sum + r.location.lng, 0) / allRequests.length;
+    const allRequests = await Request.find({
+      _id: { $in: targetCluster.request_ids },
+    });
+    const avgLat =
+      allRequests.reduce((sum, r) => sum + r.location.lat, 0) /
+      allRequests.length;
+    const avgLng =
+      allRequests.reduce((sum, r) => sum + r.location.lng, 0) /
+      allRequests.length;
     targetCluster.location.lat = avgLat;
     targetCluster.location.lng = avgLng;
 
     await targetCluster.save();
-    console.log(`🔗 Request merged into cluster ${targetCluster._id} (${targetCluster.request_ids.length} requests)`);
+    console.log(
+      `🔗 Request merged into cluster ${targetCluster._id} (${targetCluster.request_ids.length} requests)`,
+    );
   } else {
     // Create new cluster for this request
     targetCluster = await Cluster.create({
       location: {
         lat: requestDoc.location.lat,
         lng: requestDoc.location.lng,
-        address: requestDoc.location.address || '',
+        address: requestDoc.location.address || "",
       },
       need_type: requestDoc.need_type,
       request_ids: [requestDoc._id],
       total_people: requestDoc.people_count || 1,
       max_severity: requestDoc.severity,
     });
-    console.log(`🆕 New cluster created: ${targetCluster._id} for ${requestDoc.need_type}`);
+    console.log(
+      `🆕 New cluster created: ${targetCluster._id} for ${requestDoc.need_type}`,
+    );
   }
 
   // Link request back to its cluster
   requestDoc.cluster_id = targetCluster._id;
-  requestDoc.status = 'Clustered';
+  requestDoc.status = "Clustered";
   await requestDoc.save();
 
   return targetCluster;

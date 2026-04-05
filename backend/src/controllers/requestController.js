@@ -41,13 +41,15 @@ const processPipeline = async (requestDoc, io) => {
       });
     }
 
-    // Step 5: Automatically run the rigorous radius dispatch protocol
-    console.log(`🚀 Initiating Automated Dispatch Protocol for Cluster ${cluster._id}`);
-    
-    // We await the dispatch attempt so the SMS/API endpoints can accurately check if it was successfully assigned
-    await dispatchRequest(cluster, io).catch(err => {
-      console.error(`Automated Dispatch Error for Cluster ${cluster._id}:`, err);
-    });
+    // Step 5: Only dispatch if the cluster is still Open (not already assigned by a previous request)
+    if (cluster.status === "Open") {
+      console.log(`🚀 Initiating Automated Dispatch Protocol for Cluster ${cluster._id}`);
+      await dispatchRequest(cluster, io).catch(err => {
+        console.error(`Automated Dispatch Error for Cluster ${cluster._id}:`, err);
+      });
+    } else {
+      console.log(`⏭️  Cluster ${cluster._id} already ${cluster.status} — skipping dispatch (request merged into existing cluster)`);
+    }
 
     // Re-fetch the cluster so we can return its fresh status (e.g., 'Assigned')
     const finalCluster = await Cluster.findById(cluster._id);

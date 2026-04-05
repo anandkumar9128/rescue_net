@@ -70,6 +70,13 @@ const assignToNGO = async (cluster, ngo, requirement, rawVolunteers) => {
 const dispatchRequest = async (cluster, io, stepIndex = 0) => {
   // Pre-defined radius escalation steps in meters (500m, 1km, 2km, 5km, 20km)
   const RADIUS_STEPS = [500, 1000, 2000, 5000, 20000];
+
+  // ── GUARD: Skip if cluster already has a team ────────────────────────────
+  const freshCluster = await Cluster.findById(cluster._id);
+  if (!freshCluster || freshCluster.status !== "Open") {
+    console.log(`⏭️  Cluster ${cluster._id} already ${freshCluster?.status || 'deleted'} — skipping duplicate dispatch`);
+    return null;
+  }
   
   // Base case: All normal radii exhausted
   if (stepIndex >= RADIUS_STEPS.length) {
