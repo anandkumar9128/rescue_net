@@ -1,9 +1,7 @@
-import { useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { useEffect, useState, useRef } from 'react'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet-routing-machine'
-import 'leaflet-routing-machine/dist/leaflet-routing-machine.css'
 
 // Fix Leaflet default icon issue with Vite
 delete L.Icon.Default.prototype._getIconUrl
@@ -13,37 +11,31 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-// Custom icons
+// ── Custom icons ───────────────────────────────────────────────────────────────
 const volunteerIcon = new L.Icon({
-  iconUrl:    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl:  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize:   [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor:[1, -34],
+  iconUrl:     'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl:   'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize:    [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
 })
-
 const destinationIcon = new L.Icon({
-  iconUrl:    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl:  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize:   [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor:[1, -34],
+  iconUrl:     'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl:   'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize:    [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
 })
 
-// Haversine distance in km (used for ETA overlay while route loads)
+// ── Haversine fallback distance (straight-line) in km ─────────────────────────
 const haversineKm = (lat1, lng1, lat2, lng2) => {
-  const R    = 6371
+  const R = 6371
   const dLat = ((lat2 - lat1) * Math.PI) / 180
   const dLng = ((lng2 - lng1) * Math.PI) / 180
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
     Math.sin(dLng / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-// Auto-pan map when volunteer position changes
+// ── Auto-pan when volunteer moves ─────────────────────────────────────────────
 function AutoPan({ center }) {
   const map = useMap()
   useEffect(() => {
@@ -52,80 +44,75 @@ function AutoPan({ center }) {
   return null
 }
 
-/**
- * RoutingControl — uses Leaflet Routing Machine (OSRM) to draw road route.
- * The default turn-by-turn panel is hidden via CSS; only the polyline shows.
- */
-function RoutingControl({ from, to }) {
-  const map            = useMap()
-  const controlRef     = useRef(null)
-  const prevFromRef    = useRef(null)
-  const prevToRef      = useRef(null)
+// ── OSRM Route fetcher (no npm package needed — raw API call) ─────────────────
+function OSRMRoute({ from, to, onRouteFound }) {
+  const [routeCoords, setRouteCoords] = useState(null)
+  const abortRef = useRef(null)
 
   useEffect(() => {
-    if (!from || !to || !map) return
+    if (!from || !to) return
 
-    // Skip if both positions are the same as last render
-    const sameFrom = prevFromRef.current &&
-      prevFromRef.current[0] === from[0] && prevFromRef.current[1] === from[1]
-    const sameTo   = prevToRef.current &&
-      prevToRef.current[0] === to[0]   && prevToRef.current[1] === to[1]
-    if (sameFrom && sameTo) return
+    // Cancel any in-flight request
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
-    prevFromRef.current = from
-    prevToRef.current   = to
+    const [fLat, fLng] = from
+    const [tLat, tLng] = to
 
-    // Remove previous control
-    if (controlRef.current) {
-      try { map.removeControl(controlRef.current) } catch {}
-      controlRef.current = null
-    }
+    // OSRM public routing API — lng,lat order in URL
+    const url = `https://router.project-osrm.org/route/v1/driving/${fLng},${fLat};${tLng},${tLat}?overview=full&geometries=geojson`
 
-    // Build new routing control
-    const control = L.Routing.control({
-      waypoints: [
-        L.latLng(from[0], from[1]),
-        L.latLng(to[0],   to[1]),
-      ],
-      router: L.Routing.osrmv1({
-        serviceUrl: 'https://router.project-osrm.org/route/v1',
-        profile: 'driving',
-      }),
-      lineOptions: {
-        styles: [
-          { color: '#3b82f6', weight: 5, opacity: 0.85 },      // blue route line
-          { color: '#ffffff', weight: 2, opacity: 0.3, dashArray: '1 10' }, // inner guide
-        ],
-        extendToWaypoints: true,
-        missingRouteTolerance: 10,
-      },
-      show:              false,   // hide the directions panel
-      addWaypoints:      false,   // don't let user add stops
-      draggableWaypoints:false,
-      fitSelectedRoutes: false,   // we manage the view ourselves
-      showAlternatives:  false,
-      createMarker:      () => null, // suppress LRM's own markers (we draw ours)
-    }).addTo(map)
+    fetch(url, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => {
+        const route = data.routes?.[0]
+        if (!route) return
 
-    controlRef.current = control
+        // GeoJSON coords are [lng, lat] — convert to [lat, lng] for Leaflet
+        const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng])
+        setRouteCoords(coords)
 
-    return () => {
-      try { map.removeControl(control) } catch {}
-    }
-  }, [from, to, map])
+        if (onRouteFound) {
+          onRouteFound({
+            totalDistance: route.distance,   // metres
+            totalTime:     route.duration,   // seconds
+          })
+        }
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') console.warn('OSRM routing error:', err)
+      })
 
-  return null
+    return () => controller.abort()
+  }, [from?.[0], from?.[1], to?.[0], to?.[1]])  // eslint-disable-line
+
+  if (!routeCoords) return null
+
+  return (
+    <>
+      {/* Road-coloured route line */}
+      <Polyline
+        positions={routeCoords}
+        pathOptions={{ color: '#3b82f6', weight: 5, opacity: 0.85 }}
+      />
+      {/* Inner white dashed guide */}
+      <Polyline
+        positions={routeCoords}
+        pathOptions={{ color: '#ffffff', weight: 2, opacity: 0.3, dashArray: '1 10' }}
+      />
+    </>
+  )
 }
 
+// ── Main TrackingMap component ─────────────────────────────────────────────────
 /**
- * TrackingMap — reusable Leaflet map for volunteer tracking
- *
  * Props:
  *   volunteerPos    { lat, lng }  — live volunteer GPS (can be null)
- *   destinationPos  { lat, lng }  — rescue site location (static)
- *   volunteerName   string        — label for volunteer marker
- *   destinationLabel string       — label for destination marker
- *   height          string        — CSS height (default '320px')
+ *   destinationPos  { lat, lng }  — rescue site (static)
+ *   volunteerName   string
+ *   destinationLabel string
+ *   height          string        CSS height, default '320px'
  */
 export default function TrackingMap({
   volunteerPos,
@@ -134,6 +121,8 @@ export default function TrackingMap({
   destinationLabel = 'Rescue Site',
   height           = '320px',
 }) {
+  const [routeSummary, setRouteSummary] = useState(null)
+
   if (!destinationPos?.lat || !destinationPos?.lng) {
     return (
       <div
@@ -149,35 +138,47 @@ export default function TrackingMap({
     ? [volunteerPos.lat, volunteerPos.lng]
     : [destinationPos.lat, destinationPos.lng]
 
-  const distanceKm = volunteerPos
-    ? haversineKm(volunteerPos.lat, volunteerPos.lng, destinationPos.lat, destinationPos.lng)
-    : null
+  // Real road distance from OSRM, or straight-line fallback while loading
+  const distanceKm = routeSummary
+    ? routeSummary.totalDistance / 1000
+    : volunteerPos
+      ? haversineKm(volunteerPos.lat, volunteerPos.lng, destinationPos.lat, destinationPos.lng)
+      : null
 
-  const etaMinutes = distanceKm != null
-    ? Math.ceil((distanceKm / 30) * 60)
-    : null
+  // Real driving time from OSRM, or speed-based fallback
+  const etaMinutes = routeSummary
+    ? Math.ceil(routeSummary.totalTime / 60)
+    : distanceKm != null
+      ? Math.ceil((distanceKm / 30) * 60)
+      : null
 
-  // LRM waypoints
-  const routeFrom = volunteerPos    ? [volunteerPos.lat,    volunteerPos.lng]    : null
-  const routeTo   = destinationPos  ? [destinationPos.lat,  destinationPos.lng]  : null
+  const routeFrom = volunteerPos   ? [volunteerPos.lat,   volunteerPos.lng]   : null
+  const routeTo   = destinationPos ? [destinationPos.lat, destinationPos.lng] : null
 
   return (
     <div className="rounded-xl overflow-hidden border border-slate-700/50 relative" style={{ height }}>
+
       {/* ── Info overlay ── */}
-      <div className="absolute top-2 left-2 z-[1000] flex gap-2 flex-wrap">
+      <div className="absolute top-2 left-2 z-[1000] flex gap-2 flex-wrap pointer-events-none">
         {distanceKm != null && (
           <div className="bg-slate-900/90 backdrop-blur-sm border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-medium text-white shadow-lg">
-            📏 {distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`}
+            {routeSummary ? '🛣' : '📏'}{' '}
+            {distanceKm < 1
+              ? `${Math.round(distanceKm * 1000)} m`
+              : `${distanceKm.toFixed(1)} km`}
+            {routeSummary && <span className="ml-1 text-slate-400">(road)</span>}
           </div>
         )}
         {etaMinutes != null && (
           <div className="bg-slate-900/90 backdrop-blur-sm border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 shadow-lg">
-            ⏱ ETA ~{etaMinutes < 60 ? `${etaMinutes} min` : `${Math.floor(etaMinutes / 60)}h ${etaMinutes % 60}m`}
+            ⏱ ETA ~{etaMinutes < 60
+              ? `${etaMinutes} min`
+              : `${Math.floor(etaMinutes / 60)}h ${etaMinutes % 60}m`}
           </div>
         )}
         {!volunteerPos && (
           <div className="bg-slate-900/90 backdrop-blur-sm border border-amber-700/50 rounded-lg px-3 py-1.5 text-xs font-medium text-amber-400 shadow-lg">
-            ⏳ Waiting for volunteer GPS...
+            ⏳ Waiting for volunteer GPS…
           </div>
         )}
       </div>
@@ -195,7 +196,7 @@ export default function TrackingMap({
           attribution="© OpenStreetMap"
         />
 
-        {/* Volunteer marker — blue, live */}
+        {/* Blue volunteer marker (live) */}
         {volunteerPos && (
           <Marker position={[volunteerPos.lat, volunteerPos.lng]} icon={volunteerIcon}>
             <Popup>
@@ -205,7 +206,7 @@ export default function TrackingMap({
           </Marker>
         )}
 
-        {/* Destination marker — red, static */}
+        {/* Red destination marker (static) */}
         <Marker position={[destinationPos.lat, destinationPos.lng]} icon={destinationIcon}>
           <Popup>
             <div className="text-sm font-semibold">🔴 {destinationLabel}</div>
@@ -213,20 +214,14 @@ export default function TrackingMap({
           </Popup>
         </Marker>
 
-        {/* Road route via LRM — only when both positions are known */}
+        {/* Road route via OSRM fetch (no npm package needed) */}
         {routeFrom && routeTo && (
-          <RoutingControl from={routeFrom} to={routeTo} />
+          <OSRMRoute from={routeFrom} to={routeTo} onRouteFound={setRouteSummary} />
         )}
 
-        {/* Auto-pan when volunteer moves */}
+        {/* Auto-pan to follow volunteer */}
         {volunteerPos && <AutoPan center={[volunteerPos.lat, volunteerPos.lng]} />}
       </MapContainer>
-
-      {/* Hide LRM's default turn-by-turn panel & waypoint drag handles */}
-      <style>{`
-        .leaflet-routing-container { display: none !important; }
-        .leaflet-routing-alt       { display: none !important; }
-      `}</style>
     </div>
   )
 }
